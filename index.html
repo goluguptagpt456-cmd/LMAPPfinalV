@@ -1122,7 +1122,8 @@ return buildPDFHTML('Monthly Report — '+monthName,body);
 }
 function downloadDoc(filename,html){
 const blob=new Blob(['\ufeff'+html],{type:'application/msword'});
-const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=filename;a.click();
+const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=filename;
+document.body.appendChild(a);a.click();document.body.removeChild(a);
 }
 function openPrintWindow(html,title){
 const win=window.open('','_blank');
@@ -1131,7 +1132,8 @@ win.document.write(html);win.document.close();
 }
 function downloadFile(name,content,type){
 const blob=new Blob([content],{type});
-const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();
+const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;
+document.body.appendChild(a);a.click();document.body.removeChild(a);
 }
 function renderSettings(){
 const s=getState().settings;
