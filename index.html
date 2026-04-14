@@ -150,7 +150,8 @@ input:focus, select:focus{border-color:#3b82f6 !important;box-shadow:0 0 0 3px r
 .activity-item:last-child{border-bottom:none;padding-bottom:0;}
 .act-icon{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;box-shadow:0 4px 8px rgba(0,0,0,0.2);}
 </style>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
 </head>
 <body>
 <div class="login-page" id="login-page">
@@ -1211,12 +1212,83 @@ downloadDoc('members_list.doc',buildDocHTML('Members List',`<h2 style="color:#1e
 showToast('Members DOC ready! ✅');
 }
 function exportMembersPDF(){
-const am=activeMembers();
-const rows=am.map((m,i)=>{const sh=getShift(m.shiftId);const p=m.charge-(m.paidAmount||0);return`<tr><td>${i+1}</td><td><strong>${m.name}</strong><br><small>${m.mobile}</small></td><td>${m.seatNo}</td><td>${sh.label}</td><td>₹${(m.charge||0).toLocaleString('en-IN')}</td><td style="color:#16a34a">₹${(m.paidAmount||0).toLocaleString('en-IN')}</td><td style="color:${p>0?'#dc2626':'#16a34a'}">${p>0?'₹'+p.toLocaleString('en-IN'):'Paid ✓'}</td><td>${fmtDate(m.startDate)}</td><td>${fmtDate(m.endDate)}</td></tr>`;}).join('');
-const s=getState();
-openPrintWindow(buildPDFHTML('Members List',`<div class="pdf-header"><h1>📖 ${s.settings.libName}</h1><p>Members Report — ${fmtDT(new Date().toISOString())}</p></div><table><thead><tr><th>#</th><th>Member</th><th>Seat</th><th>Shift</th><th>Charge</th><th>Paid</th><th>Pending</th><th>Start</th><th>End</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="4"><strong>Total</strong></td><td><strong>₹${am.reduce((x,m)=>x+(m.charge||0),0).toLocaleString('en-IN')}</strong></td><td><strong>₹${am.reduce((x,m)=>x+(m.paidAmount||0),0).toLocaleString('en-IN')}</strong></td><td><strong>₹${am.reduce((x,m)=>x+(m.charge-(m.paidAmount||0)),0).toLocaleString('en-IN')}</strong></td><td colspan="2"></td></tr></tfoot></table>`),'Members_List');
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const s = getState();
+  const am = activeMembers();
 
+  // Header
+  doc.setFillColor(30, 58, 95);
+  doc.rect(0, 0, 210, 25, 'F');
+  doc.setTextColor(255,255,255);
+  doc.setFontSize(16);
+  doc.setFont('helvetica','bold');
+  doc.text('📖 ' + s.settings.libName, 14, 12);
+  doc.setFontSize(9);
+  doc.setFont('helvetica','normal');
+  doc.text('Members Report — ' + new Date().toLocaleDateString('en-IN'), 14, 20);
+
+  // Summary
+  doc.setTextColor(30,41,59);
+  doc.setFontSize(10);
+  doc.setFont('helvetica','bold');
+  doc.text('Total Members: ' + am.length, 14, 33);
+  const totalCharge = am.reduce((x,m)=>x+(m.charge||0),0);
+  const totalPaid = am.reduce((x,m)=>x+(m.paidAmount||0),0);
+  doc.text('Total Income: Rs.' + totalCharge.toLocaleString('en-IN'), 80, 33);
+  doc.text('Collected: Rs.' + totalPaid.toLocaleString('en-IN'), 150, 33);
+
+  // Table
+  const rows = am.map((m,i) => {
+    const sh = getShift(m.shiftId);
+    const pending = m.charge - (m.paidAmount||0);
+    return [
+      i+1,
+      m.name,
+      m.mobile,
+      'Seat '+m.seatNo,
+      sh.label,
+      'Rs.'+m.charge,
+      'Rs.'+(m.paidAmount||0),
+      pending > 0 ? 'Rs.'+pending : 'Paid',
+      fmtDate(m.endDate)
+    ];
+  });
+
+  doc.autoTable({
+    startY: 38,
+    head: [['#','Name','Mobile','Seat','Shift','Charge','Paid','Pending','End Date']],
+    body: rows,
+    theme: 'grid',
+    headStyles: { fillColor: [30,58,95], textColor: 255, fontSize: 8, fontStyle: 'bold' },
+    bodyStyles: { fontSize: 8, textColor: [30,41,59] },
+    alternateRowStyles: { fillColor: [248,250,252] },
+    columnStyles: {
+      0: {cellWidth:8},
+      1: {cellWidth:28},
+      2: {cellWidth:24},
+      3: {cellWidth:14},
+      4: {cellWidth:20},
+      5: {cellWidth:18},
+      6: {cellWidth:18},
+      7: {cellWidth:18},
+      8: {cellWidth:20}
+    },
+    didParseCell: function(data) {
+      if(data.column.index === 7 && data.section === 'body') {
+        if(data.cell.raw && data.cell.raw.toString().includes('Rs.')) {
+          data.cell.styles.textColor = [220,38,38];
+        } else {
+          data.cell.styles.textColor = [22,163,74];
+        }
+      }
+    }
+  });
+
+  doc.save('members_' + today() + '.pdf');
+  showToast('Members PDF download ho gayi! ✅','#22c55e');
 }
+
 function exportExpensesDoc(){
 const s=getState();const total=s.expenses.reduce((x,e)=>x+e.amount,0);
 const rows=[...s.expenses].reverse().map((e,i)=>`<tr><td>${i+1}</td><td><strong>${e.name}</strong></td><td>${fmtDate(e.date)}</td><td style="color:#dc2626">₹${e.amount.toLocaleString('en-IN')}</td></tr>`).join('');
@@ -1224,21 +1296,219 @@ downloadDoc('expenses_report.doc',buildDocHTML('Expenses',`<h2 style="color:#1e3
 showToast('Expenses DOC ready! ✅');
 }
 function exportExpensesPDF(){
-const s=getState();const total=s.expenses.reduce((x,e)=>x+e.amount,0);
-const rows=[...s.expenses].reverse().map((e,i)=>`<tr><td>${i+1}</td><td><strong>${e.name}</strong></td><td>${fmtDate(e.date)}</td><td style="color:#dc2626">₹${e.amount.toLocaleString('en-IN')}</td></tr>`).join('');
-openPrintWindow(buildPDFHTML('Expenses',`<div class="pdf-header"><h1>📖 ${s.settings.libName}</h1><p>Expenses — ${fmtDT(new Date().toISOString())}</p></div><table><thead><tr><th>#</th><th>Expense</th><th>Date</th><th>Amount</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="3"><strong>Total</strong></td><td><strong style="color:#dc2626">₹${total.toLocaleString('en-IN')}</strong></td></tr></tfoot></table>`),'Expenses');
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const s = getState();
+  const total = s.expenses.reduce((x,e)=>x+e.amount,0);
 
+  // Header
+  doc.setFillColor(30,58,95);
+  doc.rect(0,0,210,25,'F');
+  doc.setTextColor(255,255,255);
+  doc.setFontSize(16);
+  doc.setFont('helvetica','bold');
+  doc.text('📖 ' + s.settings.libName, 14, 12);
+  doc.setFontSize(9);
+  doc.setFont('helvetica','normal');
+  doc.text('Expenses Report — ' + new Date().toLocaleDateString('en-IN'), 14, 20);
+
+  doc.setTextColor(30,41,59);
+  doc.setFontSize(10);
+  doc.setFont('helvetica','bold');
+  doc.text('Total Expenses: Rs.' + total.toLocaleString('en-IN'), 14, 33);
+
+  const rows = [...s.expenses].reverse().map((e,i) => [
+    i+1, e.name, fmtDate(e.date), 'Rs.'+e.amount.toLocaleString('en-IN')
+  ]);
+
+  doc.autoTable({
+    startY: 38,
+    head: [['#','Expense','Date','Amount']],
+    body: rows,
+    theme: 'grid',
+    headStyles: { fillColor: [30,58,95], textColor: 255, fontSize: 10, fontStyle: 'bold' },
+    bodyStyles: { fontSize: 10, textColor: [30,41,59] },
+    alternateRowStyles: { fillColor: [248,250,252] },
+    columnStyles: { 0:{cellWidth:12}, 1:{cellWidth:90}, 2:{cellWidth:40}, 3:{cellWidth:40} },
+    didParseCell: function(data){
+      if(data.column.index===3 && data.section==='body'){
+        data.cell.styles.textColor = [220,38,38];
+        data.cell.styles.fontStyle = 'bold';
+      }
+    },
+    foot: [['','','Total','Rs.'+total.toLocaleString('en-IN')]],
+    footStyles: { fillColor: [240,249,255], textColor: [14,165,233], fontStyle:'bold', fontSize:10 }
+  });
+
+  doc.save('expenses_' + today() + '.pdf');
+  showToast('Expenses PDF download ho gayi! ✅','#22c55e');
 }
+
 function exportMonthlyDoc(){
 const month=(document.getElementById('report-month')?.value)||today().substr(0,7);
 downloadDoc('monthly_'+month+'.doc',buildMonthlyHTML(month,'doc'));
 showToast('Monthly DOC ready! ✅');
 }
 function exportMonthlyPDF(){
-const month=(document.getElementById('report-month')?.value)||today().substr(0,7);
-openPrintWindow(buildMonthlyHTML(month,'pdf'),'Monthly_'+month);
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const month = (document.getElementById('report-month')?.value) || today().substr(0,7);
+  const s = getState();
+  const am = activeMembers();
+  const monthDate = new Date(month+'-01');
+  const monthName = monthDate.toLocaleDateString('en-IN',{month:'long',year:'numeric'});
 
+  // Calculations
+  const totalCharge = am.reduce((x,m)=>x+(m.charge||0),0);
+  const totalPaid = am.reduce((x,m)=>x+(m.paidAmount||0),0);
+  const totalPending = totalCharge - totalPaid;
+  const monthExp = s.expenses.filter(e=>e.date&&e.date.startsWith(month));
+  const totalExpAmt = monthExp.reduce((x,e)=>x+e.amount,0);
+  const monthIncome = am.reduce((x,m)=>x+(m.payments||[]).filter(p=>p.date&&p.date.startsWith(month)).reduce((a,p)=>a+p.amount,0),0);
+  const netProfit = monthIncome - totalExpAmt;
+  const pendingMembers = am.filter(m=>(m.paidAmount||0)<m.charge);
+  const expiredMembers = am.filter(m=>daysBetween(today(),m.endDate)<0);
+  const newMembers = am.filter(m=>m.addedAt&&m.addedAt.startsWith(month));
+
+  let y = 0;
+
+  // Header
+  doc.setFillColor(30,58,95);
+  doc.rect(0,0,210,28,'F');
+  doc.setTextColor(255,255,255);
+  doc.setFontSize(16);
+  doc.setFont('helvetica','bold');
+  doc.text('📖 ' + s.settings.libName, 14, 13);
+  doc.setFontSize(10);
+  doc.setFont('helvetica','normal');
+  doc.text('Monthly Report — ' + monthName, 14, 22);
+  y = 35;
+
+  // Summary Cards
+  doc.autoTable({
+    startY: y,
+    head: [['Expected','Collected','Pending','Expenses','This Month','Net Profit']],
+    body: [[
+      'Rs.'+totalCharge.toLocaleString('en-IN'),
+      'Rs.'+totalPaid.toLocaleString('en-IN'),
+      'Rs.'+totalPending.toLocaleString('en-IN'),
+      'Rs.'+totalExpAmt.toLocaleString('en-IN'),
+      'Rs.'+monthIncome.toLocaleString('en-IN'),
+      (netProfit>=0?'+':'')+' Rs.'+netProfit.toLocaleString('en-IN')
+    ]],
+    theme: 'grid',
+    headStyles: { fillColor: [30,58,95], textColor: 255, fontSize: 8, fontStyle:'bold', halign:'center' },
+    bodyStyles: { fontSize: 9, fontStyle:'bold', halign:'center' },
+    didParseCell: function(data){
+      if(data.section==='body'){
+        const colors = [[14,165,233],[22,163,74],[217,119,6],[220,38,38],[22,163,74], netProfit>=0?[22,163,74]:[220,38,38]];
+        data.cell.styles.textColor = colors[data.column.index];
+      }
+    }
+  });
+  y = doc.lastAutoTable.finalY + 6;
+
+  // Members summary
+  doc.autoTable({
+    startY: y,
+    head: [['👤 Members Info','Count']],
+    body: [
+      ['Total Active Members', am.length],
+      ['New This Month', newMembers.length],
+      ['Payment Pending', pendingMembers.length],
+      ['Expired', expiredMembers.length]
+    ],
+    theme: 'grid',
+    headStyles: { fillColor: [30,58,95], textColor:255, fontSize:9 },
+    bodyStyles: { fontSize:9 },
+    columnStyles: { 0:{cellWidth:150}, 1:{cellWidth:30, halign:'center', fontStyle:'bold'} }
+  });
+  y = doc.lastAutoTable.finalY + 6;
+
+  // Pending payments table
+  if(pendingMembers.length > 0){
+    const pendingRows = pendingMembers.map((m,i)=>{
+      const sh = getShift(m.shiftId);
+      const p = m.charge-(m.paidAmount||0);
+      return [i+1, m.name, 'Seat '+m.seatNo, sh.label, 'Rs.'+m.charge, 'Rs.'+(m.paidAmount||0), 'Rs.'+p];
+    });
+    doc.autoTable({
+      startY: y,
+      head: [['#','Name','Seat','Shift','Total','Paid','Pending']],
+      body: pendingRows,
+      theme: 'grid',
+      headStyles: { fillColor: [180,30,30], textColor:255, fontSize:8 },
+      bodyStyles: { fontSize:8 },
+      didParseCell: function(data){
+        if(data.column.index===6 && data.section==='body'){
+          data.cell.styles.textColor=[220,38,38];
+          data.cell.styles.fontStyle='bold';
+        }
+      },
+      foot: [['','','','','','Pending','Rs.'+pendingMembers.reduce((x,m)=>x+(m.charge-(m.paidAmount||0)),0).toLocaleString('en-IN')]],
+      footStyles: { fillColor:[254,242,242], textColor:[220,38,38], fontStyle:'bold' }
+    });
+    y = doc.lastAutoTable.finalY + 6;
+  }
+
+  // Expenses table
+  if(monthExp.length > 0){
+    // New page if needed
+    if(y > 220) { doc.addPage(); y = 14; }
+    const expRows = monthExp.map((e,i)=>[i+1, e.name, fmtDate(e.date), 'Rs.'+e.amount.toLocaleString('en-IN')]);
+    doc.autoTable({
+      startY: y,
+      head: [['#','Expense','Date','Amount']],
+      body: expRows,
+      theme: 'grid',
+      headStyles: { fillColor: [30,58,95], textColor:255, fontSize:8 },
+      bodyStyles: { fontSize:8 },
+      didParseCell: function(data){
+        if(data.column.index===3 && data.section==='body'){
+          data.cell.styles.textColor=[220,38,38];
+        }
+      },
+      foot: [['','','Total','Rs.'+totalExpAmt.toLocaleString('en-IN')]],
+      footStyles: { fillColor:[254,242,242], textColor:[220,38,38], fontStyle:'bold' }
+    });
+    y = doc.lastAutoTable.finalY + 6;
+  }
+
+  // New members table
+  if(newMembers.length > 0){
+    if(y > 220) { doc.addPage(); y = 14; }
+    const newRows = newMembers.map((m,i)=>{
+      const sh = getShift(m.shiftId);
+      return [i+1, m.name, 'Seat '+m.seatNo, sh.label, fmtDate(m.startDate), fmtDate(m.endDate), 'Rs.'+m.charge];
+    });
+    doc.autoTable({
+      startY: y,
+      head: [['#','Name','Seat','Shift','Start','End','Charge']],
+      body: newRows,
+      theme: 'grid',
+      headStyles: { fillColor: [22,100,74], textColor:255, fontSize:8 },
+      bodyStyles: { fontSize:8 },
+      didParseCell: function(data){
+        if(data.column.index===6 && data.section==='body'){
+          data.cell.styles.textColor=[22,163,74];
+        }
+      }
+    });
+  }
+
+  // Footer
+  const pageCount = doc.internal.getNumberOfPages();
+  for(let i=1; i<=pageCount; i++){
+    doc.setPage(i);
+    doc.setFontSize(8);
+    doc.setTextColor(148,163,184);
+    doc.text('LibraryOS — ' + s.settings.libName + ' | Page ' + i + ' of ' + pageCount, 14, 290);
+  }
+
+  doc.save('monthly_report_' + month + '.pdf');
+  showToast('Monthly PDF download ho gayi! ✅','#22c55e');
 }
+
 function buildDocHTML(title,body){
 return`<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>${title}</title><style>body{font-family:Arial,sans-serif;padding:30px;color:#1e293b;max-width:900px;margin:0 auto}table{width:100%;border-collapse:collapse;margin-top:12px}th{background:#1e3a5f;color:#fff;padding:10px 12px;text-align:left;font-size:12px;text-transform:uppercase}td{padding:9px 12px;border-bottom:1px solid #e2e8f0;font-size:13px}tfoot td{background:#f0f9ff;font-weight:700;border-top:2px solid #bae6fd;color:#0ea5e9}tr:nth-child(even) td{background:#f8fafc}.sum-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e2e8f0;font-size:13px}</style></head><body>${body}</body></html>`;
 }
@@ -1309,72 +1579,11 @@ const blob=new Blob(['\ufeff'+html],{type:'application/msword'});
 const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=filename;
 document.body.appendChild(a);a.click();document.body.removeChild(a);
 }
-function openPrintWindow(html, title){
-  showToast('PDF ban rahi hai... ⏳', '#3b82f6');
-  const filename = (title||'report').replace(/[^a-z0-9]/gi,'_').toLowerCase() + '.pdf';
-
-  // Full HTML doc se sirf body content extract karo
-  const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
-  const bodyContent = bodyMatch ? bodyMatch[1] : html;
-
-  // Style bhi extract karo
-  const styleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
-  const styleContent = styleMatch ? styleMatch[1] : '';
-
-  // Container banao with extracted styles
-  const container = document.createElement('div');
-  container.style.cssText = 'position:fixed;left:-9999px;top:0;width:190mm;background:#fff;color:#1e293b;font-family:Arial,sans-serif;font-size:12px;padding:10mm;';
-
-  // Inject styles scoped to container
-  const styleEl = document.createElement('style');
-  styleEl.textContent = styleContent + ' body{background:#fff!important;color:#1e293b!important;}';
-  container.appendChild(styleEl);
-
-  // Inject body content
-  const contentEl = document.createElement('div');
-  contentEl.innerHTML = bodyContent;
-  // Remove the print/close buttons from PDF
-  const dlBtn = contentEl.querySelector('#dl-btn');
-  if(dlBtn) dlBtn.remove();
-  container.appendChild(contentEl);
-  document.body.appendChild(container);
-
-  const opt = {
-    margin: [5, 5, 5, 5],
-    filename: filename,
-    image: { type: 'jpeg', quality: 1 },
-    html2canvas: {
-      scale: 2,
-      useCORS: true,
-      backgroundColor: '#ffffff',
-      logging: false,
-      windowWidth: 794
-    },
-    jsPDF: {
-      unit: 'mm',
-      format: 'a4',
-      orientation: 'portrait'
-    },
-    pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
-  };
-
-  html2pdf().set(opt).from(container).save().then(function(){
-    document.body.removeChild(container);
-    showToast('PDF download ho gayi! ✅', '#22c55e');
-  }).catch(function(){
-    document.body.removeChild(container);
-    // Fallback: HTML blob download
-    const blob = new Blob([html], {type:'text/html'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename.replace('.pdf','.html');
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(function(){ URL.revokeObjectURL(url); }, 3000);
-    showToast('File download ho gayi! 📥', '#22c55e');
-  });
+function openPrintWindow(html,title){
+  // Fallback for DOC exports
+  const win=window.open('','_blank');
+  if(win){win.document.write(html);win.document.close();}
+  else showToast('Popup blocked!','#ef4444');
 }
 function downloadFile(name,content,type){
 const blob=new Blob([content],{type});
