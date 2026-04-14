@@ -1212,81 +1212,68 @@ downloadDoc('members_list.doc',buildDocHTML('Members List',`<h2 style="color:#1e
 showToast('Members DOC ready! ✅');
 }
 function exportMembersPDF(){
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
-  const s = getState();
-  const am = activeMembers();
-
+  if(!window.jspdf){showToast('PDF library load ho rahi hai, dobara try karo','#f59e0b');return;}
+  const {jsPDF}=window.jspdf;
+  const doc=new jsPDF('p','mm','a4');
+  const s=getState(); const am=activeMembers(); const now=today();
+  const navy=[30,58,95],green=[22,163,74],red=[220,38,38],orange=[217,119,6],gray=[100,116,139],white=[255,255,255];
+  const lightBlue=[240,249,255],lightGreen=[240,253,244],lightRed=[254,242,242];
+  const totalCharge=am.reduce((x,m)=>x+(m.charge||0),0);
+  const totalPaid=am.reduce((x,m)=>x+(m.paidAmount||0),0);
+  const totalPending=totalCharge-totalPaid;
+  const pendingM=am.filter(m=>(m.paidAmount||0)<m.charge);
+  const expiredM=am.filter(m=>daysBetween(now,m.endDate)<0);
+  const expiringM=am.filter(m=>{const d=daysBetween(now,m.endDate);return d>=0&&d<=4;});
+  const fullyPaidM=am.filter(m=>(m.paidAmount||0)>=m.charge);
   // Header
-  doc.setFillColor(30, 58, 95);
-  doc.rect(0, 0, 210, 25, 'F');
-  doc.setTextColor(255,255,255);
-  doc.setFontSize(16);
-  doc.setFont('helvetica','bold');
-  doc.text('📖 ' + s.settings.libName, 14, 12);
-  doc.setFontSize(9);
-  doc.setFont('helvetica','normal');
-  doc.text('Members Report — ' + new Date().toLocaleDateString('en-IN'), 14, 20);
-
-  // Summary
-  doc.setTextColor(30,41,59);
-  doc.setFontSize(10);
-  doc.setFont('helvetica','bold');
-  doc.text('Total Members: ' + am.length, 14, 33);
-  const totalCharge = am.reduce((x,m)=>x+(m.charge||0),0);
-  const totalPaid = am.reduce((x,m)=>x+(m.paidAmount||0),0);
-  doc.text('Total Income: Rs.' + totalCharge.toLocaleString('en-IN'), 80, 33);
-  doc.text('Collected: Rs.' + totalPaid.toLocaleString('en-IN'), 150, 33);
-
-  // Table
-  const rows = am.map((m,i) => {
-    const sh = getShift(m.shiftId);
-    const pending = m.charge - (m.paidAmount||0);
-    return [
-      i+1,
-      m.name,
-      m.mobile,
-      'Seat '+m.seatNo,
-      sh.label,
-      'Rs.'+m.charge,
-      'Rs.'+(m.paidAmount||0),
-      pending > 0 ? 'Rs.'+pending : 'Paid',
-      fmtDate(m.endDate)
-    ];
+  doc.setFillColor(...navy);doc.rect(0,0,210,32,'F');
+  doc.setFillColor(59,130,246);doc.rect(0,29,210,3,'F');
+  doc.setTextColor(...white);doc.setFontSize(20);doc.setFont('helvetica','bold');
+  doc.text(s.settings.libName,14,14);
+  doc.setFontSize(9);doc.setFont('helvetica','normal');
+  doc.text('Members Report  |  '+new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}),14,24);
+  let y=40;
+  // Summary boxes row 1
+  const bw=44,bh=20,gap=3;
+  [{l:'Total Members',v:am.length,c:navy,bg:[235,241,255]},{l:'Fully Paid',v:fullyPaidM.length,c:green,bg:lightGreen},{l:'Pending Payment',v:pendingM.length,c:red,bg:lightRed},{l:'Expiring Soon',v:expiringM.length,c:orange,bg:[255,251,235]}].forEach((b,i)=>{
+    const bx=14+i*(bw+gap);
+    doc.setFillColor(...b.bg);doc.roundedRect(bx,y,bw,bh,2,2,'F');
+    doc.setDrawColor(...b.c);doc.setLineWidth(0.5);doc.roundedRect(bx,y,bw,bh,2,2,'S');
+    doc.setTextColor(...b.c);doc.setFontSize(16);doc.setFont('helvetica','bold');
+    doc.text(String(b.v),bx+bw/2,y+12,{align:'center'});
+    doc.setFontSize(6.5);doc.setFont('helvetica','normal');doc.setTextColor(...gray);
+    doc.text(b.l,bx+bw/2,y+17,{align:'center'});
   });
-
-  doc.autoTable({
-    startY: 38,
-    head: [['#','Name','Mobile','Seat','Shift','Charge','Paid','Pending','End Date']],
-    body: rows,
-    theme: 'grid',
-    headStyles: { fillColor: [30,58,95], textColor: 255, fontSize: 8, fontStyle: 'bold' },
-    bodyStyles: { fontSize: 8, textColor: [30,41,59] },
-    alternateRowStyles: { fillColor: [248,250,252] },
-    columnStyles: {
-      0: {cellWidth:8},
-      1: {cellWidth:28},
-      2: {cellWidth:24},
-      3: {cellWidth:14},
-      4: {cellWidth:20},
-      5: {cellWidth:18},
-      6: {cellWidth:18},
-      7: {cellWidth:18},
-      8: {cellWidth:20}
-    },
-    didParseCell: function(data) {
-      if(data.column.index === 7 && data.section === 'body') {
-        if(data.cell.raw && data.cell.raw.toString().includes('Rs.')) {
-          data.cell.styles.textColor = [220,38,38];
-        } else {
-          data.cell.styles.textColor = [22,163,74];
-        }
-      }
-    }
+  y+=24;
+  // Summary boxes row 2
+  [{l:'Expected Income',v:'Rs.'+totalCharge.toLocaleString('en-IN'),c:[14,100,160],bg:lightBlue},{l:'Total Collected',v:'Rs.'+totalPaid.toLocaleString('en-IN'),c:green,bg:lightGreen},{l:'Total Pending',v:'Rs.'+totalPending.toLocaleString('en-IN'),c:red,bg:lightRed},{l:'Expired Members',v:expiredM.length,c:red,bg:lightRed}].forEach((b,i)=>{
+    const bx=14+i*(bw+gap);
+    doc.setFillColor(...b.bg);doc.roundedRect(bx,y,bw,bh,2,2,'F');
+    doc.setDrawColor(...b.c);doc.setLineWidth(0.5);doc.roundedRect(bx,y,bw,bh,2,2,'S');
+    doc.setTextColor(...b.c);doc.setFontSize(10);doc.setFont('helvetica','bold');
+    doc.text(String(b.v),bx+bw/2,y+12,{align:'center'});
+    doc.setFontSize(6.5);doc.setFont('helvetica','normal');doc.setTextColor(...gray);
+    doc.text(b.l,bx+bw/2,y+17,{align:'center'});
   });
-
-  doc.save('members_' + today() + '.pdf');
-  showToast('Members PDF download ho gayi! ✅','#22c55e');
+  y+=24;
+  // Shift breakdown
+  doc.setFontSize(9);doc.setFont('helvetica','bold');doc.setTextColor(...navy);
+  doc.text('Shift-wise Breakdown',14,y);y+=3;
+  const shifts=getShifts();
+  const shiftRows=shifts.map(sh=>{const shM=am.filter(m=>m.shiftId===sh.id);const shC=shM.reduce((x,m)=>x+(m.charge||0),0);const shP=shM.reduce((x,m)=>x+(m.paidAmount||0),0);return[sh.label,sh.time||'—',shM.length,'Rs.'+shC.toLocaleString('en-IN'),'Rs.'+shP.toLocaleString('en-IN'),'Rs.'+(shC-shP).toLocaleString('en-IN')];});
+  const sfM=am.filter(m=>m.shiftId==='sf');
+  if(sfM.length>0){const sfC=sfM.reduce((x,m)=>x+(m.charge||0),0);const sfP=sfM.reduce((x,m)=>x+(m.paidAmount||0),0);shiftRows.push(['Full Shift','Full Day',sfM.length,'Rs.'+sfC.toLocaleString('en-IN'),'Rs.'+sfP.toLocaleString('en-IN'),'Rs.'+(sfC-sfP).toLocaleString('en-IN')]);}
+  doc.autoTable({startY:y,head:[['Shift','Timing','Members','Expected','Collected','Pending']],body:shiftRows,foot:[['Total','',am.length,'Rs.'+totalCharge.toLocaleString('en-IN'),'Rs.'+totalPaid.toLocaleString('en-IN'),'Rs.'+totalPending.toLocaleString('en-IN')]],theme:'grid',headStyles:{fillColor:navy,textColor:white,fontSize:8,fontStyle:'bold'},bodyStyles:{fontSize:8},footStyles:{fillColor:lightBlue,textColor:[14,100,160],fontStyle:'bold',fontSize:8},alternateRowStyles:{fillColor:[248,250,252]},columnStyles:{0:{cellWidth:28},1:{cellWidth:42},2:{cellWidth:18,halign:'center'},3:{cellWidth:28,halign:'right'},4:{cellWidth:28,halign:'right'},5:{cellWidth:28,halign:'right'}},didParseCell:function(d){if(d.section==='body'&&d.column.index===5){const v=parseInt((d.cell.raw||'').replace(/[^0-9]/g,''));d.cell.styles.textColor=v>0?red:green;}}});
+  y=doc.lastAutoTable.finalY+7;
+  // All members table
+  doc.setFontSize(9);doc.setFont('helvetica','bold');doc.setTextColor(...navy);
+  doc.text('All Members — Complete List ('+am.length+')',14,y);y+=3;
+  const memberRows=am.map((m,i)=>{const sh=getShift(m.shiftId);const p=m.charge-(m.paidAmount||0);const dL=daysBetween(now,m.endDate);let st=dL<0?'Expired':dL<=4?'Expiring':'Active';return[i+1,m.name+'\n'+m.mobile,'S'+m.seatNo,sh.label,'Rs.'+m.charge.toLocaleString('en-IN'),'Rs.'+(m.paidAmount||0).toLocaleString('en-IN'),p>0?'Rs.'+p.toLocaleString('en-IN'):'Paid ✓',fmtDate(m.startDate),fmtDate(m.endDate),st];});
+  doc.autoTable({startY:y,head:[['#','Name/Mobile','Seat','Shift','Charge','Paid','Pending','Start','End','Status']],body:memberRows,foot:[['','Total('+am.length+')','','','Rs.'+totalCharge.toLocaleString('en-IN'),'Rs.'+totalPaid.toLocaleString('en-IN'),'Rs.'+totalPending.toLocaleString('en-IN'),'','','']],theme:'grid',headStyles:{fillColor:navy,textColor:white,fontSize:7,fontStyle:'bold'},bodyStyles:{fontSize:7,minCellHeight:10},footStyles:{fillColor:lightBlue,textColor:[14,100,160],fontStyle:'bold',fontSize:7},alternateRowStyles:{fillColor:[248,250,252]},columnStyles:{0:{cellWidth:8,halign:'center'},1:{cellWidth:34},2:{cellWidth:10,halign:'center'},3:{cellWidth:20},4:{cellWidth:18,halign:'right'},5:{cellWidth:18,halign:'right'},6:{cellWidth:18,halign:'right'},7:{cellWidth:18},8:{cellWidth:18},9:{cellWidth:16,halign:'center'}},didParseCell:function(d){if(d.section==='body'){if(d.column.index===6){d.cell.styles.textColor=d.cell.raw==='Paid ✓'?green:red;d.cell.styles.fontStyle='bold';}if(d.column.index===9){d.cell.styles.textColor=d.cell.raw==='Expired'?red:d.cell.raw==='Expiring'?orange:green;d.cell.styles.fontStyle='bold';}}}});
+  const pc=doc.internal.getNumberOfPages();
+  for(let i=1;i<=pc;i++){doc.setPage(i);doc.setFontSize(7);doc.setTextColor(...gray);doc.text('LibraryOS — '+s.settings.libName+' | Members Report | Page '+i+' of '+pc,14,290);doc.text('CONFIDENTIAL',196,290,{align:'right'});}
+  doc.save('members_'+s.settings.libName.replace(/\s+/g,'_')+'_'+today()+'.pdf');
+  showToast('Members PDF ready! ✅','#22c55e');
 }
 
 function exportExpensesDoc(){
@@ -1296,52 +1283,64 @@ downloadDoc('expenses_report.doc',buildDocHTML('Expenses',`<h2 style="color:#1e3
 showToast('Expenses DOC ready! ✅');
 }
 function exportExpensesPDF(){
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
-  const s = getState();
-  const total = s.expenses.reduce((x,e)=>x+e.amount,0);
-
+  if(!window.jspdf){showToast('PDF library load ho rahi hai, dobara try karo','#f59e0b');return;}
+  const {jsPDF}=window.jspdf;
+  const doc=new jsPDF('p','mm','a4');
+  const s=getState(); const am=activeMembers(); const now=today();
+  const navy=[30,58,95],green=[22,163,74],red=[220,38,38],gray=[100,116,139],white=[255,255,255];
+  const lightBlue=[240,249,255],lightGreen=[240,253,244],lightRed=[254,242,242];
+  const allExp=[...s.expenses].sort((a,b)=>b.date.localeCompare(a.date));
+  const total=allExp.reduce((x,e)=>x+e.amount,0);
+  const thisMonth=now.substr(0,7);
+  const monthExp=allExp.filter(e=>e.date&&e.date.startsWith(thisMonth));
+  const monthTotal=monthExp.reduce((x,e)=>x+e.amount,0);
+  const totalIncome=am.reduce((x,m)=>x+(m.paidAmount||0),0);
+  const netProfit=totalIncome-total;
   // Header
-  doc.setFillColor(30,58,95);
-  doc.rect(0,0,210,25,'F');
-  doc.setTextColor(255,255,255);
-  doc.setFontSize(16);
-  doc.setFont('helvetica','bold');
-  doc.text('📖 ' + s.settings.libName, 14, 12);
-  doc.setFontSize(9);
-  doc.setFont('helvetica','normal');
-  doc.text('Expenses Report — ' + new Date().toLocaleDateString('en-IN'), 14, 20);
-
-  doc.setTextColor(30,41,59);
-  doc.setFontSize(10);
-  doc.setFont('helvetica','bold');
-  doc.text('Total Expenses: Rs.' + total.toLocaleString('en-IN'), 14, 33);
-
-  const rows = [...s.expenses].reverse().map((e,i) => [
-    i+1, e.name, fmtDate(e.date), 'Rs.'+e.amount.toLocaleString('en-IN')
-  ]);
-
-  doc.autoTable({
-    startY: 38,
-    head: [['#','Expense','Date','Amount']],
-    body: rows,
-    theme: 'grid',
-    headStyles: { fillColor: [30,58,95], textColor: 255, fontSize: 10, fontStyle: 'bold' },
-    bodyStyles: { fontSize: 10, textColor: [30,41,59] },
-    alternateRowStyles: { fillColor: [248,250,252] },
-    columnStyles: { 0:{cellWidth:12}, 1:{cellWidth:90}, 2:{cellWidth:40}, 3:{cellWidth:40} },
-    didParseCell: function(data){
-      if(data.column.index===3 && data.section==='body'){
-        data.cell.styles.textColor = [220,38,38];
-        data.cell.styles.fontStyle = 'bold';
-      }
-    },
-    foot: [['','','Total','Rs.'+total.toLocaleString('en-IN')]],
-    footStyles: { fillColor: [240,249,255], textColor: [14,165,233], fontStyle:'bold', fontSize:10 }
+  doc.setFillColor(...navy);doc.rect(0,0,210,32,'F');
+  doc.setFillColor(239,68,68);doc.rect(0,29,210,3,'F');
+  doc.setTextColor(...white);doc.setFontSize(20);doc.setFont('helvetica','bold');
+  doc.text(s.settings.libName,14,14);
+  doc.setFontSize(9);doc.setFont('helvetica','normal');
+  doc.text('Expenses Report  |  '+new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}),14,24);
+  let y=40;
+  const bw=60,bh=20,gap=4;
+  [{l:'Total Expenses (All Time)',v:'Rs.'+total.toLocaleString('en-IN'),c:red,bg:lightRed},{l:'This Month Expenses',v:'Rs.'+monthTotal.toLocaleString('en-IN'),c:[180,50,0],bg:[255,245,235]},{l:'Total Income Collected',v:'Rs.'+totalIncome.toLocaleString('en-IN'),c:green,bg:lightGreen}].forEach((b,i)=>{
+    const bx=14+i*(bw+gap);
+    doc.setFillColor(...b.bg);doc.roundedRect(bx,y,bw,bh,2,2,'F');
+    doc.setDrawColor(...b.c);doc.setLineWidth(0.5);doc.roundedRect(bx,y,bw,bh,2,2,'S');
+    doc.setTextColor(...b.c);doc.setFontSize(11);doc.setFont('helvetica','bold');
+    doc.text(String(b.v),bx+bw/2,y+11,{align:'center'});
+    doc.setFontSize(7);doc.setFont('helvetica','normal');doc.setTextColor(...gray);
+    doc.text(b.l,bx+bw/2,y+17,{align:'center'});
   });
-
-  doc.save('expenses_' + today() + '.pdf');
-  showToast('Expenses PDF download ho gayi! ✅','#22c55e');
+  y+=24;
+  // Net profit banner
+  const npColor=netProfit>=0?green:red;
+  const npBg=netProfit>=0?lightGreen:lightRed;
+  doc.setFillColor(...npBg);doc.roundedRect(14,y,182,14,2,2,'F');
+  doc.setDrawColor(...npColor);doc.setLineWidth(0.8);doc.roundedRect(14,y,182,14,2,2,'S');
+  doc.setTextColor(...npColor);doc.setFontSize(11);doc.setFont('helvetica','bold');
+  doc.text((netProfit>=0?'NET PROFIT: +':'NET LOSS: -')+'Rs.'+Math.abs(netProfit).toLocaleString('en-IN'),105,y+9,{align:'center'});
+  y+=20;
+  // Monthly breakdown
+  const byMonth={};
+  allExp.forEach(e=>{const m=e.date?e.date.substr(0,7):'unknown';if(!byMonth[m]){byMonth[m]={total:0,count:0};}byMonth[m].total+=e.amount;byMonth[m].count++;});
+  const mbrRows=Object.keys(byMonth).sort((a,b)=>b.localeCompare(a)).map(m=>{const md=new Date(m+'-01');return[md.toLocaleDateString('en-IN',{month:'long',year:'numeric'}),byMonth[m].count,'Rs.'+byMonth[m].total.toLocaleString('en-IN')];});
+  if(mbrRows.length>0){
+    doc.setFontSize(9);doc.setFont('helvetica','bold');doc.setTextColor(...navy);doc.text('Month-wise Breakdown',14,y);y+=3;
+    doc.autoTable({startY:y,head:[['Month','No. of Entries','Total Amount']],body:mbrRows,foot:[['All Time',allExp.length,'Rs.'+total.toLocaleString('en-IN')]],theme:'grid',headStyles:{fillColor:navy,textColor:white,fontSize:9,fontStyle:'bold'},bodyStyles:{fontSize:9},footStyles:{fillColor:lightRed,textColor:red,fontStyle:'bold',fontSize:9},alternateRowStyles:{fillColor:[248,250,252]},columnStyles:{0:{cellWidth:90},1:{cellWidth:40,halign:'center'},2:{cellWidth:60,halign:'right'}},didParseCell:function(d){if(d.column.index===2&&d.section==='body'){d.cell.styles.textColor=red;d.cell.styles.fontStyle='bold';}}});
+    y=doc.lastAutoTable.finalY+7;
+  }
+  // All expenses
+  doc.setFontSize(9);doc.setFont('helvetica','bold');doc.setTextColor(...navy);
+  doc.text('All Expenses — Complete List ('+allExp.length+')',14,y);y+=3;
+  const expRows=allExp.map((e,i)=>[i+1,e.name,fmtDate(e.date),'Rs.'+e.amount.toLocaleString('en-IN')]);
+  doc.autoTable({startY:y,head:[['#','Expense Name','Date','Amount']],body:expRows,foot:[['','','Grand Total','Rs.'+total.toLocaleString('en-IN')]],theme:'grid',headStyles:{fillColor:navy,textColor:white,fontSize:9,fontStyle:'bold'},bodyStyles:{fontSize:9},footStyles:{fillColor:lightRed,textColor:red,fontStyle:'bold',fontSize:9},alternateRowStyles:{fillColor:[248,250,252]},columnStyles:{0:{cellWidth:12,halign:'center'},1:{cellWidth:100},2:{cellWidth:40},3:{cellWidth:38,halign:'right'}},didParseCell:function(d){if(d.column.index===3&&d.section==='body'){d.cell.styles.textColor=red;d.cell.styles.fontStyle='bold';}}});
+  const pc=doc.internal.getNumberOfPages();
+  for(let i=1;i<=pc;i++){doc.setPage(i);doc.setFontSize(7);doc.setTextColor(...gray);doc.text('LibraryOS — '+s.settings.libName+' | Expenses Report | Page '+i+' of '+pc,14,290);doc.text('CONFIDENTIAL',196,290,{align:'right'});}
+  doc.save('expenses_'+s.settings.libName.replace(/\s+/g,'_')+'_'+today()+'.pdf');
+  showToast('Expenses PDF ready! ✅','#22c55e');
 }
 
 function exportMonthlyDoc(){
@@ -1350,163 +1349,113 @@ downloadDoc('monthly_'+month+'.doc',buildMonthlyHTML(month,'doc'));
 showToast('Monthly DOC ready! ✅');
 }
 function exportMonthlyPDF(){
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
-  const month = (document.getElementById('report-month')?.value) || today().substr(0,7);
-  const s = getState();
-  const am = activeMembers();
-  const monthDate = new Date(month+'-01');
-  const monthName = monthDate.toLocaleDateString('en-IN',{month:'long',year:'numeric'});
-
+  if(!window.jspdf){showToast('PDF library load ho rahi hai, dobara try karo','#f59e0b');return;}
+  const {jsPDF}=window.jspdf;
+  const doc=new jsPDF('p','mm','a4');
+  const month=(document.getElementById('report-month')?.value)||today().substr(0,7);
+  const s=getState(); const am=activeMembers(); const now=today();
+  const monthDate=new Date(month+'-01');
+  const monthName=monthDate.toLocaleDateString('en-IN',{month:'long',year:'numeric'});
+  const navy=[30,58,95],green=[22,163,74],red=[220,38,38],orange=[217,119,6],gray=[100,116,139],white=[255,255,255];
+  const lightBlue=[240,249,255],lightGreen=[240,253,244],lightRed=[254,242,242];
   // Calculations
-  const totalCharge = am.reduce((x,m)=>x+(m.charge||0),0);
-  const totalPaid = am.reduce((x,m)=>x+(m.paidAmount||0),0);
-  const totalPending = totalCharge - totalPaid;
-  const monthExp = s.expenses.filter(e=>e.date&&e.date.startsWith(month));
-  const totalExpAmt = monthExp.reduce((x,e)=>x+e.amount,0);
-  const monthIncome = am.reduce((x,m)=>x+(m.payments||[]).filter(p=>p.date&&p.date.startsWith(month)).reduce((a,p)=>a+p.amount,0),0);
-  const netProfit = monthIncome - totalExpAmt;
-  const pendingMembers = am.filter(m=>(m.paidAmount||0)<m.charge);
-  const expiredMembers = am.filter(m=>daysBetween(today(),m.endDate)<0);
-  const newMembers = am.filter(m=>m.addedAt&&m.addedAt.startsWith(month));
-
-  let y = 0;
-
+  const totalCharge=am.reduce((x,m)=>x+(m.charge||0),0);
+  const totalPaid=am.reduce((x,m)=>x+(m.paidAmount||0),0);
+  const totalPending=totalCharge-totalPaid;
+  const monthExpArr=s.expenses.filter(e=>e.date&&e.date.startsWith(month));
+  const totalExpAmt=monthExpArr.reduce((x,e)=>x+e.amount,0);
+  const monthPayments=am.flatMap(m=>(m.payments||[]).filter(p=>p.date&&p.date.startsWith(month)).map(p=>({name:m.name,seat:m.seatNo,shift:getShift(m.shiftId).label,amount:p.amount,date:p.date})));
+  const monthIncome=monthPayments.reduce((x,p)=>x+p.amount,0);
+  const netProfit=monthIncome-totalExpAmt;
+  const pendingM=am.filter(m=>(m.paidAmount||0)<m.charge);
+  const expiredM=am.filter(m=>daysBetween(now,m.endDate)<0);
+  const expiringM=am.filter(m=>{const d=daysBetween(now,m.endDate);return d>=0&&d<=4;});
+  const newM=am.filter(m=>m.addedAt&&m.addedAt.startsWith(month));
   // Header
-  doc.setFillColor(30,58,95);
-  doc.rect(0,0,210,28,'F');
-  doc.setTextColor(255,255,255);
-  doc.setFontSize(16);
-  doc.setFont('helvetica','bold');
-  doc.text('📖 ' + s.settings.libName, 14, 13);
-  doc.setFontSize(10);
-  doc.setFont('helvetica','normal');
-  doc.text('Monthly Report — ' + monthName, 14, 22);
-  y = 35;
-
-  // Summary Cards
-  doc.autoTable({
-    startY: y,
-    head: [['Expected','Collected','Pending','Expenses','This Month','Net Profit']],
-    body: [[
-      'Rs.'+totalCharge.toLocaleString('en-IN'),
-      'Rs.'+totalPaid.toLocaleString('en-IN'),
-      'Rs.'+totalPending.toLocaleString('en-IN'),
-      'Rs.'+totalExpAmt.toLocaleString('en-IN'),
-      'Rs.'+monthIncome.toLocaleString('en-IN'),
-      (netProfit>=0?'+':'')+' Rs.'+netProfit.toLocaleString('en-IN')
-    ]],
-    theme: 'grid',
-    headStyles: { fillColor: [30,58,95], textColor: 255, fontSize: 8, fontStyle:'bold', halign:'center' },
-    bodyStyles: { fontSize: 9, fontStyle:'bold', halign:'center' },
-    didParseCell: function(data){
-      if(data.section==='body'){
-        const colors = [[14,165,233],[22,163,74],[217,119,6],[220,38,38],[22,163,74], netProfit>=0?[22,163,74]:[220,38,38]];
-        data.cell.styles.textColor = colors[data.column.index];
-      }
-    }
+  doc.setFillColor(...navy);doc.rect(0,0,210,32,'F');
+  doc.setFillColor(99,102,241);doc.rect(0,29,210,3,'F');
+  doc.setTextColor(...white);doc.setFontSize(18);doc.setFont('helvetica','bold');
+  doc.text(s.settings.libName,14,13);
+  doc.setFontSize(10);doc.setFont('helvetica','normal');
+  doc.text('Monthly Report — '+monthName,14,22);
+  doc.setFontSize(8);doc.text('Generated: '+new Date().toLocaleDateString('en-IN'),155,22);
+  let y=38;
+  // Financial boxes
+  const bw=29,bh=20,gap=2;
+  [{l:'Expected',v:'Rs.'+totalCharge.toLocaleString('en-IN'),c:[14,100,160],bg:lightBlue},{l:'Collected',v:'Rs.'+totalPaid.toLocaleString('en-IN'),c:green,bg:lightGreen},{l:'Pending',v:'Rs.'+totalPending.toLocaleString('en-IN'),c:red,bg:lightRed},{l:'This Month',v:'Rs.'+monthIncome.toLocaleString('en-IN'),c:[0,120,80],bg:[235,255,245]},{l:'Expenses',v:'Rs.'+totalExpAmt.toLocaleString('en-IN'),c:red,bg:lightRed},{l:netProfit>=0?'Net Profit':'Net Loss',v:'Rs.'+Math.abs(netProfit).toLocaleString('en-IN'),c:netProfit>=0?green:red,bg:netProfit>=0?lightGreen:lightRed}].forEach((b,i)=>{
+    const bx=14+i*(bw+gap);
+    doc.setFillColor(...b.bg);doc.roundedRect(bx,y,bw,bh,1.5,1.5,'F');
+    doc.setDrawColor(...b.c);doc.setLineWidth(0.4);doc.roundedRect(bx,y,bw,bh,1.5,1.5,'S');
+    doc.setTextColor(...b.c);doc.setFontSize(7.5);doc.setFont('helvetica','bold');
+    doc.text(b.v,bx+bw/2,y+11,{align:'center'});
+    doc.setFontSize(6);doc.setFont('helvetica','normal');doc.setTextColor(...gray);
+    doc.text(b.l,bx+bw/2,y+17,{align:'center'});
   });
-  y = doc.lastAutoTable.finalY + 6;
-
-  // Members summary
-  doc.autoTable({
-    startY: y,
-    head: [['👤 Members Info','Count']],
-    body: [
-      ['Total Active Members', am.length],
-      ['New This Month', newMembers.length],
-      ['Payment Pending', pendingMembers.length],
-      ['Expired', expiredMembers.length]
-    ],
-    theme: 'grid',
-    headStyles: { fillColor: [30,58,95], textColor:255, fontSize:9 },
-    bodyStyles: { fontSize:9 },
-    columnStyles: { 0:{cellWidth:150}, 1:{cellWidth:30, halign:'center', fontStyle:'bold'} }
+  y+=24;
+  // Members status boxes
+  [{l:'Active Members',v:am.length,c:navy,bg:[235,241,255]},{l:'New This Month',v:newM.length,c:green,bg:lightGreen},{l:'Pending Payment',v:pendingM.length,c:red,bg:lightRed},{l:'Expiring (4d)',v:expiringM.length,c:orange,bg:[255,251,235]},{l:'Expired',v:expiredM.length,c:red,bg:lightRed},{l:'Transactions',v:monthPayments.length,c:[14,100,160],bg:lightBlue}].forEach((b,i)=>{
+    const bx=14+i*(bw+gap);
+    doc.setFillColor(...b.bg);doc.roundedRect(bx,y,bw,bh,1.5,1.5,'F');
+    doc.setDrawColor(...b.c);doc.setLineWidth(0.4);doc.roundedRect(bx,y,bw,bh,1.5,1.5,'S');
+    doc.setTextColor(...b.c);doc.setFontSize(14);doc.setFont('helvetica','bold');
+    doc.text(String(b.v),bx+bw/2,y+12,{align:'center'});
+    doc.setFontSize(6);doc.setFont('helvetica','normal');doc.setTextColor(...gray);
+    doc.text(b.l,bx+bw/2,y+17,{align:'center'});
   });
-  y = doc.lastAutoTable.finalY + 6;
-
-  // Pending payments table
-  if(pendingMembers.length > 0){
-    const pendingRows = pendingMembers.map((m,i)=>{
-      const sh = getShift(m.shiftId);
-      const p = m.charge-(m.paidAmount||0);
-      return [i+1, m.name, 'Seat '+m.seatNo, sh.label, 'Rs.'+m.charge, 'Rs.'+(m.paidAmount||0), 'Rs.'+p];
-    });
-    doc.autoTable({
-      startY: y,
-      head: [['#','Name','Seat','Shift','Total','Paid','Pending']],
-      body: pendingRows,
-      theme: 'grid',
-      headStyles: { fillColor: [180,30,30], textColor:255, fontSize:8 },
-      bodyStyles: { fontSize:8 },
-      didParseCell: function(data){
-        if(data.column.index===6 && data.section==='body'){
-          data.cell.styles.textColor=[220,38,38];
-          data.cell.styles.fontStyle='bold';
-        }
-      },
-      foot: [['','','','','','Pending','Rs.'+pendingMembers.reduce((x,m)=>x+(m.charge-(m.paidAmount||0)),0).toLocaleString('en-IN')]],
-      footStyles: { fillColor:[254,242,242], textColor:[220,38,38], fontStyle:'bold' }
-    });
-    y = doc.lastAutoTable.finalY + 6;
+  y+=24;
+  // Shift breakdown
+  doc.setFontSize(9);doc.setFont('helvetica','bold');doc.setTextColor(...navy);doc.text('Shift-wise Income',14,y);y+=3;
+  const shifts=getShifts();
+  const shiftRows=shifts.map(sh=>{const shM=am.filter(m=>m.shiftId===sh.id);const shC=shM.reduce((x,m)=>x+(m.charge||0),0);const shP=shM.reduce((x,m)=>x+(m.paidAmount||0),0);const shMP=monthPayments.filter(p=>shM.some(m=>m.name===p.name)).reduce((x,p)=>x+p.amount,0);return[sh.label,sh.time||'—',shM.length,'Rs.'+shC.toLocaleString('en-IN'),'Rs.'+shP.toLocaleString('en-IN'),'Rs.'+(shC-shP).toLocaleString('en-IN'),'Rs.'+shMP.toLocaleString('en-IN')];});
+  const sfM=am.filter(m=>m.shiftId==='sf');
+  if(sfM.length>0){const sfC=sfM.reduce((x,m)=>x+(m.charge||0),0);const sfP=sfM.reduce((x,m)=>x+(m.paidAmount||0),0);shiftRows.push(['Full Shift','Full Day',sfM.length,'Rs.'+sfC.toLocaleString('en-IN'),'Rs.'+sfP.toLocaleString('en-IN'),'Rs.'+(sfC-sfP).toLocaleString('en-IN'),'—']);}
+  doc.autoTable({startY:y,head:[['Shift','Timing','Members','Expected','Collected','Pending','This Month']],body:shiftRows,foot:[['Total','',am.length,'Rs.'+totalCharge.toLocaleString('en-IN'),'Rs.'+totalPaid.toLocaleString('en-IN'),'Rs.'+totalPending.toLocaleString('en-IN'),'Rs.'+monthIncome.toLocaleString('en-IN')]],theme:'grid',headStyles:{fillColor:navy,textColor:white,fontSize:7.5,fontStyle:'bold'},bodyStyles:{fontSize:7.5},footStyles:{fillColor:lightBlue,textColor:[14,100,160],fontStyle:'bold',fontSize:7.5},alternateRowStyles:{fillColor:[248,250,252]},columnStyles:{0:{cellWidth:25},1:{cellWidth:36},2:{cellWidth:18,halign:'center'},3:{cellWidth:25,halign:'right'},4:{cellWidth:25,halign:'right'},5:{cellWidth:25,halign:'right'},6:{cellWidth:28,halign:'right'}},didParseCell:function(d){if(d.section==='body'&&d.column.index===5){const v=parseInt((d.cell.raw||'').replace(/[^0-9]/g,''));d.cell.styles.textColor=v>0?red:green;}}});
+  y=doc.lastAutoTable.finalY+7;
+  // Payment history
+  if(monthPayments.length>0){
+    if(y>220){doc.addPage();y=14;}
+    doc.setFontSize(9);doc.setFont('helvetica','bold');doc.setTextColor(...navy);
+    doc.text('Payment History — '+monthName+' ('+monthPayments.length+' transactions)',14,y);y+=3;
+    const sortedPay=[...monthPayments].sort((a,b)=>new Date(b.date)-new Date(a.date));
+    doc.autoTable({startY:y,head:[['#','Member','Seat','Shift','Amount','Date','Time']],body:sortedPay.map((p,i)=>[i+1,p.name,'Seat '+p.seat,p.shift,'Rs.'+p.amount.toLocaleString('en-IN'),fmtDate(p.date),fmtTime(p.date)]),foot:[['','','','','Rs.'+monthIncome.toLocaleString('en-IN'),monthPayments.length+' payments','']],theme:'grid',headStyles:{fillColor:[22,100,74],textColor:white,fontSize:7.5,fontStyle:'bold'},bodyStyles:{fontSize:7.5},footStyles:{fillColor:lightGreen,textColor:green,fontStyle:'bold',fontSize:7.5},alternateRowStyles:{fillColor:[248,250,252]},columnStyles:{0:{cellWidth:8,halign:'center'},1:{cellWidth:36},2:{cellWidth:16,halign:'center'},3:{cellWidth:24},4:{cellWidth:26,halign:'right'},5:{cellWidth:24},6:{cellWidth:24}},didParseCell:function(d){if(d.column.index===4&&d.section==='body'){d.cell.styles.textColor=green;d.cell.styles.fontStyle='bold';}}});
+    y=doc.lastAutoTable.finalY+7;
   }
-
-  // Expenses table
-  if(monthExp.length > 0){
-    // New page if needed
-    if(y > 220) { doc.addPage(); y = 14; }
-    const expRows = monthExp.map((e,i)=>[i+1, e.name, fmtDate(e.date), 'Rs.'+e.amount.toLocaleString('en-IN')]);
-    doc.autoTable({
-      startY: y,
-      head: [['#','Expense','Date','Amount']],
-      body: expRows,
-      theme: 'grid',
-      headStyles: { fillColor: [30,58,95], textColor:255, fontSize:8 },
-      bodyStyles: { fontSize:8 },
-      didParseCell: function(data){
-        if(data.column.index===3 && data.section==='body'){
-          data.cell.styles.textColor=[220,38,38];
-        }
-      },
-      foot: [['','','Total','Rs.'+totalExpAmt.toLocaleString('en-IN')]],
-      footStyles: { fillColor:[254,242,242], textColor:[220,38,38], fontStyle:'bold' }
-    });
-    y = doc.lastAutoTable.finalY + 6;
+  // Pending payments
+  if(pendingM.length>0){
+    if(y>220){doc.addPage();y=14;}
+    doc.setFontSize(9);doc.setFont('helvetica','bold');doc.setTextColor(...red);
+    doc.text('Pending Payments ('+pendingM.length+' members)',14,y);y+=3;
+    doc.autoTable({startY:y,head:[['#','Name','Mobile','Seat','Shift','Total','Paid','Pending','End Date']],body:pendingM.map((m,i)=>{const sh=getShift(m.shiftId);const p=m.charge-(m.paidAmount||0);return[i+1,m.name,m.mobile,'S'+m.seatNo,sh.label,'Rs.'+m.charge.toLocaleString('en-IN'),'Rs.'+(m.paidAmount||0).toLocaleString('en-IN'),'Rs.'+p.toLocaleString('en-IN'),fmtDate(m.endDate)];}),foot:[['','Total','','','','Rs.'+totalCharge.toLocaleString('en-IN'),'Rs.'+totalPaid.toLocaleString('en-IN'),'Rs.'+totalPending.toLocaleString('en-IN'),'']],theme:'grid',headStyles:{fillColor:[180,30,30],textColor:white,fontSize:7.5,fontStyle:'bold'},bodyStyles:{fontSize:7.5},footStyles:{fillColor:lightRed,textColor:red,fontStyle:'bold',fontSize:7.5},alternateRowStyles:{fillColor:[255,248,248]},columnStyles:{0:{cellWidth:8,halign:'center'},1:{cellWidth:30},2:{cellWidth:24},3:{cellWidth:10,halign:'center'},4:{cellWidth:22},5:{cellWidth:20,halign:'right'},6:{cellWidth:20,halign:'right'},7:{cellWidth:22,halign:'right'},8:{cellWidth:22}},didParseCell:function(d){if(d.column.index===7&&d.section==='body'){d.cell.styles.textColor=red;d.cell.styles.fontStyle='bold';}}});
+    y=doc.lastAutoTable.finalY+7;
   }
-
-  // New members table
-  if(newMembers.length > 0){
-    if(y > 220) { doc.addPage(); y = 14; }
-    const newRows = newMembers.map((m,i)=>{
-      const sh = getShift(m.shiftId);
-      return [i+1, m.name, 'Seat '+m.seatNo, sh.label, fmtDate(m.startDate), fmtDate(m.endDate), 'Rs.'+m.charge];
-    });
-    doc.autoTable({
-      startY: y,
-      head: [['#','Name','Seat','Shift','Start','End','Charge']],
-      body: newRows,
-      theme: 'grid',
-      headStyles: { fillColor: [22,100,74], textColor:255, fontSize:8 },
-      bodyStyles: { fontSize:8 },
-      didParseCell: function(data){
-        if(data.column.index===6 && data.section==='body'){
-          data.cell.styles.textColor=[22,163,74];
-        }
-      }
-    });
+  // Expiring members
+  if(expiringM.length>0){
+    if(y>230){doc.addPage();y=14;}
+    doc.setFontSize(9);doc.setFont('helvetica','bold');doc.setTextColor(...orange);
+    doc.text('Expiring Soon — Next 4 Days ('+expiringM.length+')',14,y);y+=3;
+    doc.autoTable({startY:y,head:[['#','Name','Mobile','Seat','Shift','End Date','Days Left']],body:expiringM.map((m,i)=>{const sh=getShift(m.shiftId);const d=daysBetween(now,m.endDate);return[i+1,m.name,m.mobile,'S'+m.seatNo,sh.label,fmtDate(m.endDate),d===0?'Today!':d+' days'];}),theme:'grid',headStyles:{fillColor:[180,100,0],textColor:white,fontSize:7.5,fontStyle:'bold'},bodyStyles:{fontSize:7.5},alternateRowStyles:{fillColor:[255,251,235]},columnStyles:{0:{cellWidth:8,halign:'center'},1:{cellWidth:35},2:{cellWidth:26},3:{cellWidth:12,halign:'center'},4:{cellWidth:28},5:{cellWidth:30},6:{cellWidth:29,halign:'center'}},didParseCell:function(d){if(d.column.index===6&&d.section==='body'){d.cell.styles.textColor=orange;d.cell.styles.fontStyle='bold';}}});
+    y=doc.lastAutoTable.finalY+7;
   }
-
-  // Footer
-  const pageCount = doc.internal.getNumberOfPages();
-  for(let i=1; i<=pageCount; i++){
-    doc.setPage(i);
-    doc.setFontSize(8);
-    doc.setTextColor(148,163,184);
-    doc.text('LibraryOS — ' + s.settings.libName + ' | Page ' + i + ' of ' + pageCount, 14, 290);
+  // Expenses this month
+  if(monthExpArr.length>0){
+    if(y>230){doc.addPage();y=14;}
+    doc.setFontSize(9);doc.setFont('helvetica','bold');doc.setTextColor(...red);
+    doc.text('Expenses — '+monthName+' ('+monthExpArr.length+')',14,y);y+=3;
+    doc.autoTable({startY:y,head:[['#','Expense','Date','Amount']],body:monthExpArr.map((e,i)=>[i+1,e.name,fmtDate(e.date),'Rs.'+e.amount.toLocaleString('en-IN')]),foot:[['','','Total','Rs.'+totalExpAmt.toLocaleString('en-IN')]],theme:'grid',headStyles:{fillColor:navy,textColor:white,fontSize:8,fontStyle:'bold'},bodyStyles:{fontSize:8},footStyles:{fillColor:lightRed,textColor:red,fontStyle:'bold',fontSize:8},alternateRowStyles:{fillColor:[248,250,252]},columnStyles:{0:{cellWidth:12,halign:'center'},1:{cellWidth:100},2:{cellWidth:40},3:{cellWidth:36,halign:'right'}},didParseCell:function(d){if(d.column.index===3&&d.section==='body'){d.cell.styles.textColor=red;d.cell.styles.fontStyle='bold';}}});
+    y=doc.lastAutoTable.finalY+7;
   }
-
-  doc.save('monthly_report_' + month + '.pdf');
-  showToast('Monthly PDF download ho gayi! ✅','#22c55e');
+  // New members
+  if(newM.length>0){
+    if(y>230){doc.addPage();y=14;}
+    doc.setFontSize(9);doc.setFont('helvetica','bold');doc.setTextColor(...green);
+    doc.text('New Members — '+monthName+' ('+newM.length+')',14,y);y+=3;
+    doc.autoTable({startY:y,head:[['#','Name','Mobile','Seat','Shift','Start','End','Charge']],body:newM.map((m,i)=>{const sh=getShift(m.shiftId);return[i+1,m.name,m.mobile,'S'+m.seatNo,sh.label,fmtDate(m.startDate),fmtDate(m.endDate),'Rs.'+m.charge.toLocaleString('en-IN')];}),foot:[['','Total ('+newM.length+')','','','','','','Rs.'+newM.reduce((x,m)=>x+(m.charge||0),0).toLocaleString('en-IN')]],theme:'grid',headStyles:{fillColor:[22,100,74],textColor:white,fontSize:7.5,fontStyle:'bold'},bodyStyles:{fontSize:7.5},footStyles:{fillColor:lightGreen,textColor:green,fontStyle:'bold',fontSize:7.5},alternateRowStyles:{fillColor:[240,253,244]},columnStyles:{0:{cellWidth:8,halign:'center'},1:{cellWidth:30},2:{cellWidth:24},3:{cellWidth:12,halign:'center'},4:{cellWidth:24},5:{cellWidth:22},6:{cellWidth:22},7:{cellWidth:26,halign:'right'}},didParseCell:function(d){if(d.column.index===7&&d.section==='body'){d.cell.styles.textColor=green;d.cell.styles.fontStyle='bold';}}});
+  }
+  // Page numbers
+  const pc=doc.internal.getNumberOfPages();
+  for(let i=1;i<=pc;i++){doc.setPage(i);doc.setFontSize(7);doc.setTextColor(...gray);doc.text('LibraryOS — '+s.settings.libName+' | Monthly Report: '+monthName+' | Page '+i+' of '+pc,14,290);doc.text('CONFIDENTIAL',196,290,{align:'right'});}
+  doc.save('monthly_'+month+'_'+s.settings.libName.replace(/\s+/g,'_')+'.pdf');
+  showToast('Monthly PDF ready! ✅','#22c55e');
 }
 
 function buildDocHTML(title,body){
