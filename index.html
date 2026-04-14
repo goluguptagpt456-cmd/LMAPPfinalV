@@ -1311,40 +1311,59 @@ document.body.appendChild(a);a.click();document.body.removeChild(a);
 }
 function openPrintWindow(html, title){
   showToast('PDF ban rahi hai... ⏳', '#3b82f6');
-  // Temporary div mein HTML render karo
-  const container = document.createElement('div');
-  container.innerHTML = html;
-  container.style.position = 'fixed';
-  container.style.left = '-9999px';
-  container.style.top = '0';
-  container.style.width = '210mm';
-  container.style.background = '#fff';
-  document.body.appendChild(container);
-
   const filename = (title||'report').replace(/[^a-z0-9]/gi,'_').toLowerCase() + '.pdf';
 
+  // Full HTML doc se sirf body content extract karo
+  const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+  const bodyContent = bodyMatch ? bodyMatch[1] : html;
+
+  // Style bhi extract karo
+  const styleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
+  const styleContent = styleMatch ? styleMatch[1] : '';
+
+  // Container banao with extracted styles
+  const container = document.createElement('div');
+  container.style.cssText = 'position:fixed;left:-9999px;top:0;width:190mm;background:#fff;color:#1e293b;font-family:Arial,sans-serif;font-size:12px;padding:10mm;';
+
+  // Inject styles scoped to container
+  const styleEl = document.createElement('style');
+  styleEl.textContent = styleContent + ' body{background:#fff!important;color:#1e293b!important;}';
+  container.appendChild(styleEl);
+
+  // Inject body content
+  const contentEl = document.createElement('div');
+  contentEl.innerHTML = bodyContent;
+  // Remove the print/close buttons from PDF
+  const dlBtn = contentEl.querySelector('#dl-btn');
+  if(dlBtn) dlBtn.remove();
+  container.appendChild(contentEl);
+  document.body.appendChild(container);
+
   const opt = {
-    margin: [8, 8, 8, 8],
+    margin: [5, 5, 5, 5],
     filename: filename,
-    image: { type: 'jpeg', quality: 0.98 },
+    image: { type: 'jpeg', quality: 1 },
     html2canvas: {
       scale: 2,
       useCORS: true,
-      backgroundColor: '#ffffff'
+      backgroundColor: '#ffffff',
+      logging: false,
+      windowWidth: 794
     },
     jsPDF: {
       unit: 'mm',
       format: 'a4',
       orientation: 'portrait'
-    }
+    },
+    pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
   };
 
   html2pdf().set(opt).from(container).save().then(function(){
     document.body.removeChild(container);
     showToast('PDF download ho gayi! ✅', '#22c55e');
-  }).catch(function(e){
+  }).catch(function(){
     document.body.removeChild(container);
-    // Fallback: HTML download
+    // Fallback: HTML blob download
     const blob = new Blob([html], {type:'text/html'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1354,7 +1373,7 @@ function openPrintWindow(html, title){
     a.click();
     document.body.removeChild(a);
     setTimeout(function(){ URL.revokeObjectURL(url); }, 3000);
-    showToast('HTML download ho gayi! 📥', '#22c55e');
+    showToast('File download ho gayi! 📥', '#22c55e');
   });
 }
 function downloadFile(name,content,type){
