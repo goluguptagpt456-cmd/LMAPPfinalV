@@ -43,7 +43,7 @@ input:focus, select:focus{border-color:#3b82f6 !important;box-shadow:0 0 0 3px r
 .login-btn{width:100%;background:linear-gradient(135deg, #3b82f6, #2563eb);color:#fff;border:none;border-radius:12px;padding:14px;font-weight:800;font-size:16px;margin-top:8px;box-shadow:0 4px 14px rgba(59,130,246,0.4);}
 .login-btn:hover{box-shadow:0 6px 20px rgba(59,130,246,0.6);}
 .login-error{color:#f87171;font-size:13px;text-align:center;margin-top:12px;display:none;animation:popIn 0.3s ease;}
-.device-error{background:rgba(69,10,10,0.8);backdrop-filter:blur(4px);border:1px solid #ef4444;border-radius:12px;padding:12px;color:#fca5a5;font-size:13px;text-align:center;margin-top:12px;display:none;animation:popIn 0.3s ease;}
+
 
 .app{display:none;padding-bottom:80px}
 .header{position:sticky;top:0;background:rgba(10,15,30,0.85);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);padding:14px 16px;display:flex;align-items:center;gap:12px;z-index:10;border-bottom:1px solid rgba(255,255,255,0.05);}
@@ -150,6 +150,7 @@ input:focus, select:focus{border-color:#3b82f6 !important;box-shadow:0 0 0 3px r
 .activity-item:last-child{border-bottom:none;padding-bottom:0;}
 .act-icon{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;box-shadow:0 4px 8px rgba(0,0,0,0.2);}
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head>
 <body>
 <div class="login-page" id="login-page">
@@ -185,6 +186,7 @@ input:focus, select:focus{border-color:#3b82f6 !important;box-shadow:0 0 0 3px r
 <div class="header">
 <button class="icon-btn" onclick="openSidebar()">☰</button>
 <span class="header-title" id="page-title">Dashboard</span>
+<span id="sync-badge" style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;background:rgba(34,197,94,0.15);color:#4ade80;flex-shrink:0;transition:all 0.3s">🟢 Synced</span>
 <button class="icon-btn" id="alert-header-btn" onclick="gotoPage('alerts')" style="display:none">⚠️<span id="alert-count-header" style="font-size:12px;background:#ef4444;color:#fff;border-radius:20px;padding:1px 6px;margin-left:3px">0</span></button>
 </div>
 <div class="main" id="main-content"></div>
@@ -255,7 +257,246 @@ input:focus, select:focus{border-color:#3b82f6 !important;box-shadow:0 0 0 3px r
 </div>
 <div class="toast" id="toast"></div>
 <script>
-const USERS={'admin_q72k':'Lx$9bN@p2v','lib_m38x':'Wk#5vP$9rL','usr_p92q':'B@7hN%3kLp','lib_v54m':'R$2pV@8bNk','usr_x81n':'M#6rL$4pPv','lib_k29w':'K%9bN@3vPx','admin_z63j':'P$7xL#2rNk','usr_b47y':'T@8vP%5bLk','lib_f15c':'N#4kL$9pRp','usr_h82d':'L%2rN@7vPx','lib_y36w':'V$5bL#8pNk','usr_t94m':'P@3vL%6rKp','lib_c28q':'R#9kN$2pLb','usr_w71v':'M%5pL@8vNx','lib_n53j':'K$7rP#4bLk','admin_h29x':'L@6vN%9pRp','usr_l48k':'T#2kL$5bPx','lib_d75m':'N%8pL@3vKk','usr_g16v':'P$4bN#7rLp','lib_r39y':'V@9vL%2pKx','usr_k84j':'M#5rN$8bLp','lib_v27q':'K%3pL@6vNk','usr_p51w':'L$8bN#4rPx','lib_x93m':'T@2vP%7kLp','usr_j62d':'R#5kN$9pLx','lib_m48c':'P%7rL@2vBk','usr_f35v':'N$4pL#8bKp','lib_y71k':'V@6vN%3pRq','usr_b96j':'M#2bL$7pKx','admin_w24m':'K%8rN@5vLp'};
+// ═══════════════════════════════════════════════════════
+// CLOUD CONFIG — Supabase Edge Function (CORS fixed)
+// ═══════════════════════════════════════════════════════
+const EDGE_URL = 'https://dqwbnvydeybwkugiawte.supabase.co/functions/v1/library-sync';
+const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRxd2JudnlkZXlid2t1Z2lhd3RlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU5OTgzNzcsImV4cCI6MjA5MTU3NDM3N30.Ral0kpl0uk3fZgDE-kO3RbXFdSKAZGnLL6cFIP2mRk4';
+
+// ═══════════════════════════════════════════════════════
+// SYNC ENGINE — verified push, retry, device-free login
+// ═══════════════════════════════════════════════════════
+let _syncTimer = null;
+let _retryTimer = null;
+let _isSyncing = false;
+let _syncPending = false;
+let _retryCount = 0;
+let _isOnline = navigator.onLine;
+
+function updateSyncBadge(){
+  try {
+    const badge = document.getElementById('sync-badge');
+    if(!badge) return;
+    if(!_isOnline){ badge.textContent='🔴 Offline'; badge.style.background='rgba(239,68,68,0.15)'; badge.style.color='#f87171'; }
+    else if(_syncPending){ badge.textContent='⏳ Pending'; badge.style.background='rgba(239,68,68,0.15)'; badge.style.color='#f87171'; }
+    else if(_isSyncing){ badge.textContent='🔄 Syncing...'; badge.style.background='rgba(251,191,36,0.15)'; badge.style.color='#fbbf24'; }
+    else { badge.textContent='🟢 Synced'; badge.style.background='rgba(34,197,94,0.15)'; badge.style.color='#4ade80'; _retryCount=0; }
+  } catch(e){}
+}
+
+function cloudFetch(method, body, callback){
+  try {
+    const xhr = new XMLHttpRequest();
+    // apikey URL param mein — WebView mein headers block nahi hote aise
+    const base = EDGE_URL + '?apikey=' + encodeURIComponent(ANON_KEY);
+    const url = method === 'GET'
+      ? base + '&user_id=' + encodeURIComponent(currentUser)
+      : base;
+    xhr.open(method, url, true);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.timeout = 15000;
+    xhr.onreadystatechange = function(){
+      if(xhr.readyState !== 4) return;
+      try {
+        const data = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+        callback(xhr.status >= 200 && xhr.status < 300, data);
+      } catch(e){ callback(false, null); }
+    };
+    xhr.onerror = function(){ callback(false, null); };
+    xhr.ontimeout = function(){ callback(false, null); };
+    xhr.send(body ? JSON.stringify(body) : null);
+  } catch(e){ callback(false, null); }
+}
+
+function pushToCloud(){
+  if(!currentUser || !_isOnline) return;
+  _isSyncing = true; updateSyncBadge();
+  try {
+    const s = getState();
+    const localTs = parseInt(localStorage.getItem(sk('_updated_at')) || '0');
+    const payload = {
+      user_id: currentUser,
+      members: JSON.parse(JSON.stringify(s.members || [])),
+      expenses: JSON.parse(JSON.stringify(s.expenses || [])),
+      settings: JSON.parse(JSON.stringify(s.settings || {})),
+      next_id: s.nextId || 1,
+      activities: JSON.parse(JSON.stringify((s.activities || []).slice(0,50))),
+      updated_at: new Date(localTs).toISOString()
+    };
+    cloudFetch('POST', payload, function(ok, data){
+      _isSyncing = false;
+      if(ok && data && data.ok){
+        _syncPending = false;
+        _retryCount = 0;
+        updateSyncBadge();
+      } else {
+        // Push fail — retry with backoff
+        _syncPending = true;
+        updateSyncBadge();
+        _retryCount++;
+        if(_retryCount <= 3){
+          const delay = Math.pow(2, _retryCount) * 1000; // 2s, 4s, 8s
+          if(_retryTimer) clearTimeout(_retryTimer);
+          _retryTimer = setTimeout(function(){ pushToCloud(); }, delay);
+        }
+      }
+    });
+  } catch(e){
+    _isSyncing = false; _syncPending = true; updateSyncBadge();
+  }
+}
+
+function pullFromCloud(callback){
+  if(!currentUser || !_isOnline){ if(callback) callback(false); return; }
+  _isSyncing = true; updateSyncBadge();
+  cloudFetch('GET', null, function(ok, data){
+    _isSyncing = false; updateSyncBadge();
+    if(!ok || !data || data.ok === false){ if(callback) callback(false); return; }
+    try {
+      const cloudTs = new Date(data.updated_at || 0).getTime();
+      const localTs = parseInt(localStorage.getItem(sk('_updated_at')) || '0');
+      const localMembers = ld('members', []);
+      if(cloudTs > localTs || localMembers.length === 0){
+        if(data.members) sd('members', data.members);
+        if(data.expenses) sd('expenses', data.expenses);
+        if(data.settings) sd('settings', data.settings);
+        if(data.next_id) sd('nextId', data.next_id);
+        if(data.activities) sd('activities', data.activities);
+        localStorage.setItem(sk('_updated_at'), cloudTs.toString());
+        if(callback) callback(true);
+      } else {
+        if(callback) callback(false);
+      }
+    } catch(e){ if(callback) callback(false); }
+  });
+}
+
+function schedulePush(){
+  try {
+    localStorage.setItem(sk('_updated_at'), Date.now().toString());
+    _syncPending = true; updateSyncBadge();
+    if(_syncTimer) clearTimeout(_syncTimer);
+    // 300ms debounce — rapid changes ek saath push honge
+    _syncTimer = setTimeout(function(){ pushToCloud(); }, 300);
+  } catch(e){}
+}
+
+window.addEventListener('online', function(){
+  _isOnline = true; updateSyncBadge();
+  showToast('Internet aa gaya! Sync ho raha hai... 🔄','#3b82f6');
+  if(_syncPending) pushToCloud();
+  else pullFromCloud(function(){});
+});
+window.addEventListener('offline', function(){
+  _isOnline = false; updateSyncBadge();
+  showToast('Offline mode — data local save ho raha hai 📱','#f59e0b');
+});
+
+// ═══════════════════════════════════════════════════════
+// 100 LOGIN CREDENTIALS
+// ═══════════════════════════════════════════════════════
+const USERS = {
+  "vvf2zg32ek": "Qh*UFt449rQjv*",
+  "zirhifrxze": "P@40k2Q&aiZX",
+  "xzy1p8dhl": "Xn35Vb%5H9#ZIm",
+  "ww9o8qqry": "@Fq96befBPI6T#",
+  "ztckzabu5p": "!C@Hc935LeZr",
+  "r2gzydzqj": "4Dtsvh^!Bl793R",
+  "ihoso9aap": "I6LXr5rq!S3^",
+  "wwe3i5ygjw": "$99f&h34EDgLQ",
+  "ih9fxeya": "8d!0I0XvLj$D",
+  "g9yq53sv": "&09lpLaO4Dl^wq",
+  "fqrmw4tjd": "L89je7O^v@Nw",
+  "h2lzsv7bj": "5dH&Ir^rX0y6y",
+  "vbg7v2tk": "1gM3*IUhP@84m",
+  "oowvj73p": "a0uY6*mZ$L6rU",
+  "bxdb365d": "cVL8%U7Ijc7*",
+  "kymbkt91lu": "x1@FbUq7*37S",
+  "oupqu1ifub": "c*F$P3tLt0D2q7",
+  "jdhnauzjy": "5wnS*y2C!p7SY",
+  "cphpny41q": "7Z3Mha@*6F4o8P",
+  "noh9leqw5": "4v#0*mlUG3S1V",
+  "ikrygasojt": "Wo7Te$Dk^1e4M",
+  "jn64hbvd": "RVC!57*91iWjzO",
+  "revfwvhse": "M2bV&cA3@iV2",
+  "rcqiinczon": "jQTblLv8@97@",
+  "dgud40cjm": "0NSny#f5%9Nl",
+  "dbydrys7": "E0z5W&!2jAi1wS",
+  "eyfz29a8": "NI5mC6@o*aZxf8",
+  "kwbexh29m": "G79Nc$4*Dsid",
+  "vopkjilet": "w!7@P79C8lgV7U",
+  "soebvipono": "^eYMgWbZ99^5",
+  "tcd7wa7z1": "AXs09xA@8q!8",
+  "fp9upoxj6": "3c4D%6Zah%Qa",
+  "jsxpzg9h": "0N@Ncxk0!5Akl",
+  "qsi7kjcf": "y*X*0rET8Vo7",
+  "gkxvtagblj": "jee#V&4D7Q3g",
+  "v8nxp74qc": "kTK^h5K4U7d$",
+  "anjpwonx": "N89pOy#^c3JV",
+  "nlzbhlar": "13%Te4@XkJKTq0",
+  "jz3endftuw": "*e&6Xg3GEcm5",
+  "v387yl6oy": "10g3!yNUSAI@gm",
+  "r7gyjvlz": "uu@65U&O4GOs",
+  "xumoxskn": "uP6sy7@3KQvI^7",
+  "u8ahmrprj": "nYx36$A69iy@bA",
+  "okyrzt3goe": "LgGsj04c75&Z!",
+  "yurgdhlxw": "V4Ofk@m%1MP4",
+  "okqxoulox": "49ngE!Tyl3HR%I",
+  "xgbsrjf7pt": "s4iDr#18*s6BT7",
+  "crbjbgszpp": "IyFCdbKh2*$M17",
+  "tay0u1e4c": "5Y5$ME*9vlsDp",
+  "bb3bjtr5b0": "q2X7dMW#Fg!Kc5",
+  "wsnys6rfa2": "6%bL58tFP^Le",
+  "p9snk6pzip": "3N1dV!9z^S1q",
+  "utjcqk9ab": "43YY@y9fAi0^",
+  "rrumid8c": "iVOJ!4ih26xK&",
+  "xiexmuhz": "m3f^V84Pja3WD*",
+  "umrqixurp": "r#dU4!AA8Kf7KX",
+  "otw24qmb": "rXm1QR3eN&T8O@",
+  "ssfejeot2": "xD%5xHz0IDn8*",
+  "saguwp1pyr": "2t1fe%G*4JyD",
+  "ly29adqg": "kP699WQ!*wsGm",
+  "i9bnjzvar3": "9xa6UD^Ig4B0%",
+  "kvtwm54sc": "4AkqrQ0rX&1@7A",
+  "nuz6gxwldb": "8lJN^nn43Lv&z",
+  "en4yhku3": "#3yk42H$IyEQ7",
+  "kgk1dhms": "Xt0x^8Rr6EJ*",
+  "t0mljxzd": "K99G%K!4qsHsf",
+  "efvrgoqw": "xmV1E@24Rle&",
+  "ckxcuh801": "Woh6B9AUd9@@",
+  "wvfojqi8": "$P24FvMk$4cW2s",
+  "bxfu2ne46o": "$cHRf#346Exn",
+  "yqylvyoigr": "y5p^2qJlJT%44",
+  "d2reckiqs2": "gSu9vml^B7G9$a",
+  "fscr7mwcen": "$m0lFLYz00^n",
+  "qh9oezait": "b1h*RmbDxIl54^",
+  "ykx6oc47cp": "Nt8eFsy24@@sH",
+  "gxh3lu3rs": "0056xuEuj$M&U",
+  "svvpfv9ih": "HePP9q4s9H^$E",
+  "xyoly9hy7t": "BlsG9P*Zz0^y3",
+  "dx7rysgtf": "q@AX^3f78RLw",
+  "hvp7aro2lc": "qfZi&m98#OykY8",
+  "gxnpvh5cac": "SJqD%94k$3oB",
+  "ohx0brxx": "@U4*PaxB6e8Ho8",
+  "fw1o91aot": "Ef#Uc$x051CD1n",
+  "ehl5u8hg92": "oiI7m9MWs&o0^",
+  "nkm5mk6l0": "1saxRQd$N0z9!",
+  "ezev1wtnb": "^2O03@yhGQBNo",
+  "pjsz1e29": "8EOoV*wz*267R",
+  "p2bqggizh7": "48%73cKBD!nss",
+  "two9snjb": "d@R03aK0C2^x",
+  "diewdecf": "qmd9A0$r9I*NxW",
+  "voko0sd83": "K$6&wb1U4JVz",
+  "vo156ybcmv": "11#@vAeUCC7t",
+  "kyrk4ene": "Cm8u0O$PvqK4%J",
+  "h65rht1tfx": "&JPz2H3m$Pba6",
+  "drcwiyxw3j": "JGJv%eq8!994g",
+  "tpe7ysug": "4e3#mwkKtvP@M2",
+  "d2fdcev9": "1z*$2TylXGhiD4",
+  "ks2m8bx7": "fH@^Bi3cO17G8",
+  "mulggpmdg6": "@8r4#GcDqsN0F",
+  "kouigme1f": "O89Sd0W$KqTi@"
+};
 let currentUser=null,currentPage='dashboard',currentAlertTab='pending',currentMemberTab='all',currentAnaTab='finance',selectedSeat=null,editingMemberId=null,payingMemberId=null;
 function getDeviceId(){let d=localStorage.getItem('_did');if(!d){d='dev_'+Math.random().toString(36).substr(2,12);localStorage.setItem('_did',d);}return d;}
 function doLogin(){
@@ -264,10 +505,6 @@ const pass=document.getElementById('login-pass').value.trim();
 document.getElementById('login-error').style.display='none';
 document.getElementById('device-error').style.display='none';
 if(!USERS[id]||USERS[id]!==pass){document.getElementById('login-error').style.display='block';return;}
-const did=getDeviceId();
-const reg=localStorage.getItem('_dv_'+id);
-if(reg&&reg!==did){document.getElementById('device-error').style.display='block';return;}
-localStorage.setItem('_dv_'+id,did);
 localStorage.setItem('_sess',id);
 currentUser=id;
 initApp();
@@ -300,11 +537,11 @@ shifts:[
 })
 };
 }
-function saveMembers(m){sd('members',m);}
-function saveExpenses(e){sd('expenses',e);}
+function saveMembers(m){sd('members',m);schedulePush();}
+function saveExpenses(e){sd('expenses',e);schedulePush();}
 function saveNextId(n){sd('nextId',n);}
-function saveSettings(s){sd('settings',s);}
-function saveActivities(a){sd('activities',a);}
+function saveSettings(s){sd('settings',s);schedulePush();}
+function saveActivities(a){sd('activities',a);schedulePush();}
 function logActivity(type,msg){
 const acts=ld('activities',[]);
 acts.unshift({type,msg,time:new Date().toISOString()});
@@ -432,6 +669,14 @@ const s=getState();
 document.getElementById('sidebar-libname').textContent='📖 '+s.settings.libName;
 document.getElementById('sidebar-libid').textContent='ID: '+currentUser;
 gotoPage('dashboard');
+pullFromCloud(function(pulled){
+  if(pulled){
+    const s2=getState();
+    document.getElementById('sidebar-libname').textContent='📖 '+s2.settings.libName;
+    showToast('Cloud se data sync ho gaya! ☁️','#3b82f6');
+    renderPage();
+  }
+});
 }
 function checkSession(){
 const s=localStorage.getItem('_sess');
@@ -940,97 +1185,24 @@ function renderExport(){
 return`<div class="section-label">📋 Members Report</div>
 <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
 <button class="export-btn-item" onclick="exportMembersDoc()">📄<span>Members DOC</span></button>
-<button class="export-btn-item" onclick="exportMembersPDF()">📕<span>Members PDF</span></button>
+<button class="export-btn-item" onclick="exportMembersPDF()">📥<span>Members PDF</span></button>
 </div>
 <div class="section-label">🧾 Expenses Report</div>
 <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
 <button class="export-btn-item" onclick="exportExpensesDoc()">📄<span>Expenses DOC</span></button>
-<button class="export-btn-item" onclick="exportExpensesPDF()">📕<span>Expenses PDF</span></button>
+<button class="export-btn-item" onclick="exportExpensesPDF()">📥<span>Expenses PDF</span></button>
 </div>
 <div class="section-label">📊 Monthly Report</div>
 <div class="field" style="margin-top:8px"><label>Select Month</label>
 <input class="input" id="report-month" type="month" value="${today().substr(0,7)}"/></div>
 <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
 <button class="export-btn-item" onclick="exportMonthlyDoc()">📄<span>Monthly DOC</span></button>
-<button class="export-btn-item" onclick="exportMonthlyPDF()">📕<span>Monthly PDF</span></button>
+<button class="export-btn-item" onclick="exportMonthlyPDF()">📥<span>Monthly PDF</span></button>
 </div>
-<div class="section-label">📱 Phone to Phone Data Transfer</div>
-<div class="card col" style="margin-bottom:12px">
-<div style="display:flex;gap:8px;flex-wrap:wrap">
-<button class="export-btn-item" onclick="exportTransferFile()" style="flex:1;min-width:120px">📤<span>Data Export</span></button>
-<button class="export-btn-item" onclick="document.getElementById('transfer-file').click()" style="flex:1;min-width:120px">📥<span>Data Import</span></button>
-</div>
-<input type="file" id="transfer-file" accept=".lbos,.json" style="display:none" onchange="importTransferFile(this)"/>
-<div style="background:#0a0f1e;border:1px solid #1e293b;border-radius:12px;padding:12px;margin-top:12px">
-<div style="font-size:12px;font-weight:800;color:#60a5fa;margin-bottom:10px;letter-spacing:.5px">📖 HOW TO USE</div>
-<div style="font-size:12px;font-weight:700;color:#f59e0b;margin-bottom:6px">📤 Purane Phone se Data Nikalna:</div>
-<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">
-<div style="display:flex;gap:8px;align-items:flex-start">
-<div style="background:#1e3a5f;color:#60a5fa;min-width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800">1</div>
-<div style="font-size:12px;color:#94a3b8;padding-top:2px">Upar <b style="color:#e2e8f0">📤 Data Export</b> button dabao</div>
-</div>
-<div style="display:flex;gap:8px;align-items:flex-start">
-<div style="background:#1e3a5f;color:#60a5fa;min-width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800">2</div>
-<div style="font-size:12px;color:#94a3b8;padding-top:2px">Ek <b style="color:#e2e8f0">libraryos_transfer.lbos</b> file download hogi</div>
-</div>
-<div style="display:flex;gap:8px;align-items:flex-start">
-<div style="background:#1e3a5f;color:#60a5fa;min-width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800">3</div>
-<div style="font-size:12px;color:#94a3b8;padding-top:2px">Yeh file <b style="color:#e2e8f0">WhatsApp / Email / Drive</b> se dusre phone par bhejo</div>
-</div>
-</div>
-<div style="height:1px;background:#1e293b;margin-bottom:10px"></div>
-<div style="font-size:12px;font-weight:700;color:#4ade80;margin-bottom:6px">📥 Naye Phone mein Data Daalna:</div>
-<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">
-<div style="display:flex;gap:8px;align-items:flex-start">
-<div style="background:#052e16;color:#4ade80;min-width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800">1</div>
-<div style="font-size:12px;color:#94a3b8;padding-top:2px">Naye phone mein <b style="color:#e2e8f0">same ID aur password</b> se login karo</div>
-</div>
-<div style="display:flex;gap:8px;align-items:flex-start">
-<div style="background:#052e16;color:#4ade80;min-width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800">2</div>
-<div style="font-size:12px;color:#94a3b8;padding-top:2px">Export section mein jao aur <b style="color:#e2e8f0">📥 Data Import</b> button dabao</div>
-</div>
-<div style="display:flex;gap:8px;align-items:flex-start">
-<div style="background:#052e16;color:#4ade80;min-width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800">3</div>
-<div style="font-size:12px;color:#94a3b8;padding-top:2px">Woh <b style="color:#e2e8f0">.lbos</b> file select karo</div>
-</div>
-<div style="display:flex;gap:8px;align-items:flex-start">
-<div style="background:#052e16;color:#4ade80;min-width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800">4</div>
-<div style="font-size:12px;color:#94a3b8;padding-top:2px">Done! ✅ Saare <b style="color:#e2e8f0">Members, Payments, Expenses, Settings</b> aa jayenge</div>
-</div>
-</div>
-<div style="background:#1c0a00;border:1px solid #451a03;border-radius:10px;padding:10px;display:flex;gap:8px;align-items:flex-start">
-<span style="font-size:16px;flex-shrink:0">⚠️</span>
-<div style="font-size:11px;color:#fb923c;line-height:1.6"><b>Dhyan rakho:</b> Import karte waqt purana data <b>replace</b> ho jayega.</div>
-</div>
-</div>
-</div>`;
+`;
 }
-function exportTransferFile(){
-const s=getState();
-const payload={app:'LibraryOS',version:1,user:currentUser,exportedAt:new Date().toISOString(),data:{members:s.members||[],expenses:s.expenses||[],nextId:s.nextId||1,activities:s.activities||[],settings:s.settings||{}}};
-downloadFile('libraryos_transfer_'+currentUser+'_'+today()+'.lbos',JSON.stringify(payload,null,2),'application/json');
-showToast('Data export file ready! ✅');
-}
-function importTransferFile(input){
-const file=input.files[0];if(!file)return;
-const reader=new FileReader();
-reader.onload=function(e){
-try{
-const payload=JSON.parse(e.target.result);
-if(!payload||payload.app!=='LibraryOS'||!payload.data){showToast('Invalid file!','#ef4444');input.value='';return;}
-const d=payload.data;
-saveMembers(d.members||[]);
-saveExpenses(d.expenses||[]);
-saveNextId(d.nextId||1);
-saveActivities(d.activities||[]);
-saveSettings(d.settings||{libName:'My Library',totalSeats:60,fullShiftEnabled:true,shifts:[{id:'s1',label:'Shift 1',time:'6:00 AM – 10:00 AM'},{id:'s2',label:'Shift 2',time:'10:00 AM – 2:00 PM'},{id:'s3',label:'Shift 3',time:'2:00 PM – 6:00 PM'},{id:'s4',label:'Shift 4',time:'6:00 PM – 10:00 PM'}]});
-document.getElementById('sidebar-libname').textContent='📖 '+getState().settings.libName;
-showToast('Data import ho gaya! ✅');renderPage();
-}catch(err){showToast('File read nahi ho payi!','#ef4444');}
-input.value='';
-};
-reader.readAsText(file);
-}
+// exportTransferFile removed — cloud sync handles this
+// importTransferFile removed — cloud sync handles this
 function exportMembersDoc(){
 const am=activeMembers();
 const rows=am.map((m,i)=>{const sh=getShift(m.shiftId);const p=m.charge-(m.paidAmount||0);return`<tr><td>${i+1}</td><td><strong>${m.name}</strong><br><span style="font-size:11px;color:#666">📱 ${m.mobile}</span></td><td>${m.seatNo}</td><td>${sh.label}</td><td>₹${(m.charge||0).toLocaleString('en-IN')}</td><td style="color:#16a34a">₹${(m.paidAmount||0).toLocaleString('en-IN')}</td><td style="color:${p>0?'#dc2626':'#16a34a'}">${p>0?'₹'+p.toLocaleString('en-IN'):'Paid ✓'}</td><td>${fmtDate(m.startDate)}</td><td>${fmtDate(m.endDate)}</td></tr>`;}).join('');
@@ -1043,7 +1215,7 @@ const am=activeMembers();
 const rows=am.map((m,i)=>{const sh=getShift(m.shiftId);const p=m.charge-(m.paidAmount||0);return`<tr><td>${i+1}</td><td><strong>${m.name}</strong><br><small>${m.mobile}</small></td><td>${m.seatNo}</td><td>${sh.label}</td><td>₹${(m.charge||0).toLocaleString('en-IN')}</td><td style="color:#16a34a">₹${(m.paidAmount||0).toLocaleString('en-IN')}</td><td style="color:${p>0?'#dc2626':'#16a34a'}">${p>0?'₹'+p.toLocaleString('en-IN'):'Paid ✓'}</td><td>${fmtDate(m.startDate)}</td><td>${fmtDate(m.endDate)}</td></tr>`;}).join('');
 const s=getState();
 openPrintWindow(buildPDFHTML('Members List',`<div class="pdf-header"><h1>📖 ${s.settings.libName}</h1><p>Members Report — ${fmtDT(new Date().toISOString())}</p></div><table><thead><tr><th>#</th><th>Member</th><th>Seat</th><th>Shift</th><th>Charge</th><th>Paid</th><th>Pending</th><th>Start</th><th>End</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="4"><strong>Total</strong></td><td><strong>₹${am.reduce((x,m)=>x+(m.charge||0),0).toLocaleString('en-IN')}</strong></td><td><strong>₹${am.reduce((x,m)=>x+(m.paidAmount||0),0).toLocaleString('en-IN')}</strong></td><td><strong>₹${am.reduce((x,m)=>x+(m.charge-(m.paidAmount||0)),0).toLocaleString('en-IN')}</strong></td><td colspan="2"></td></tr></tfoot></table>`),'Members_List');
-showToast('PDF print dialog khul gaya! ✅');
+
 }
 function exportExpensesDoc(){
 const s=getState();const total=s.expenses.reduce((x,e)=>x+e.amount,0);
@@ -1055,7 +1227,7 @@ function exportExpensesPDF(){
 const s=getState();const total=s.expenses.reduce((x,e)=>x+e.amount,0);
 const rows=[...s.expenses].reverse().map((e,i)=>`<tr><td>${i+1}</td><td><strong>${e.name}</strong></td><td>${fmtDate(e.date)}</td><td style="color:#dc2626">₹${e.amount.toLocaleString('en-IN')}</td></tr>`).join('');
 openPrintWindow(buildPDFHTML('Expenses',`<div class="pdf-header"><h1>📖 ${s.settings.libName}</h1><p>Expenses — ${fmtDT(new Date().toISOString())}</p></div><table><thead><tr><th>#</th><th>Expense</th><th>Date</th><th>Amount</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="3"><strong>Total</strong></td><td><strong style="color:#dc2626">₹${total.toLocaleString('en-IN')}</strong></td></tr></tfoot></table>`),'Expenses');
-showToast('PDF print dialog khul gaya! ✅');
+
 }
 function exportMonthlyDoc(){
 const month=(document.getElementById('report-month')?.value)||today().substr(0,7);
@@ -1065,13 +1237,23 @@ showToast('Monthly DOC ready! ✅');
 function exportMonthlyPDF(){
 const month=(document.getElementById('report-month')?.value)||today().substr(0,7);
 openPrintWindow(buildMonthlyHTML(month,'pdf'),'Monthly_'+month);
-showToast('PDF print dialog khul gaya! ✅');
+
 }
 function buildDocHTML(title,body){
 return`<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>${title}</title><style>body{font-family:Arial,sans-serif;padding:30px;color:#1e293b;max-width:900px;margin:0 auto}table{width:100%;border-collapse:collapse;margin-top:12px}th{background:#1e3a5f;color:#fff;padding:10px 12px;text-align:left;font-size:12px;text-transform:uppercase}td{padding:9px 12px;border-bottom:1px solid #e2e8f0;font-size:13px}tfoot td{background:#f0f9ff;font-weight:700;border-top:2px solid #bae6fd;color:#0ea5e9}tr:nth-child(even) td{background:#f8fafc}.sum-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e2e8f0;font-size:13px}</style></head><body>${body}</body></html>`;
 }
 function buildPDFHTML(title,body){
-return`<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>${title}</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;padding:20px;color:#1e293b;font-size:13px}.pdf-header{background:#1e3a5f;color:#fff;padding:20px;border-radius:8px;margin-bottom:20px}.pdf-header h1{font-size:20px;margin-bottom:4px}.pdf-header p{font-size:12px;opacity:.8}table{width:100%;border-collapse:collapse;margin-bottom:16px}th{background:#1e3a5f;color:#fff;padding:8px 10px;text-align:left;font-size:11px;text-transform:uppercase;white-space:nowrap}td{padding:8px 10px;border-bottom:1px solid #e2e8f0;font-size:12px}tfoot td{background:#f0f9ff;font-weight:700;border-top:2px solid #bae6fd;color:#0ea5e9}tr:nth-child(even) td{background:#f8fafc}small{color:#94a3b8;font-size:10px;display:block}.summary-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin-bottom:16px}.sum-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #e2e8f0;font-size:13px}.sum-row:last-child{border-bottom:none;font-weight:700}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}.card{padding:12px;border-radius:8px;border:1px solid #e2e8f0;text-align:center}.card-lbl{font-size:10px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:4px}.card-val{font-size:18px;font-weight:900}.sec-title{font-size:12px;font-weight:800;text-transform:uppercase;color:#64748b;margin:16px 0 8px;padding-bottom:4px;border-bottom:2px solid #e2e8f0;letter-spacing:1px}.alert{padding:10px 14px;border-radius:8px;font-size:12px;margin-bottom:10px}.alert-green{background:#f0fdf4;border:1px solid #bbf7d0;color:#166534}.alert-orange{background:#fffbeb;border:1px solid #fde68a;color:#92400e}@media print{body{padding:10px}@page{margin:15mm;size:A4}}</style><script>window.onload=function(){window.print();}<\/script></head><body>${body}</body></html>`;
+return`<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>${title}</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;padding:20px;color:#1e293b;font-size:13px}.pdf-header{background:#1e3a5f;color:#fff;padding:20px;border-radius:8px;margin-bottom:20px}.pdf-header h1{font-size:20px;margin-bottom:4px}.pdf-header p{font-size:12px;opacity:.8}table{width:100%;border-collapse:collapse;margin-bottom:16px}th{background:#1e3a5f;color:#fff;padding:8px 10px;text-align:left;font-size:11px;text-transform:uppercase;white-space:nowrap}td{padding:8px 10px;border-bottom:1px solid #e2e8f0;font-size:12px}tfoot td{background:#f0f9ff;font-weight:700;border-top:2px solid #bae6fd;color:#0ea5e9}tr:nth-child(even) td{background:#f8fafc}small{color:#94a3b8;font-size:10px;display:block}.summary-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin-bottom:16px}.sum-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #e2e8f0;font-size:13px}.sum-row:last-child{border-bottom:none;font-weight:700}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}.card{padding:12px;border-radius:8px;border:1px solid #e2e8f0;text-align:center}.card-lbl{font-size:10px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:4px}.card-val{font-size:18px;font-weight:900}.sec-title{font-size:12px;font-weight:800;text-transform:uppercase;color:#64748b;margin:16px 0 8px;padding-bottom:4px;border-bottom:2px solid #e2e8f0;letter-spacing:1px}.alert{padding:10px 14px;border-radius:8px;font-size:12px;margin-bottom:10px}.alert-green{background:#f0fdf4;border:1px solid #bbf7d0;color:#166534}.alert-orange{background:#fffbeb;border:1px solid #fde68a;color:#92400e}@media print{body{padding:10px}@page{margin:15mm;size:A4}}</style><script>window.onload=function(){
+  var ua=navigator.userAgent||'';
+  var isAndroid=ua.indexOf('Android')>-1;
+  if(!isAndroid){window.print();}
+  var btn=document.getElementById('dl-btn');
+  if(btn)btn.style.display='block';
+};<\/script></head><body>
+<div id="dl-btn" style="display:none;width:100%;padding:16px;box-sizing:border-box;position:sticky;top:0;z-index:9999;background:#1a1a2e;border-bottom:2px solid #3b82f6;text-align:center">
+<button ontouchstart="" onclick="window.print()" style="background:linear-gradient(135deg,#3b82f6,#2563eb);color:#fff;border:none;border-radius:12px;padding:16px 32px;font-size:16px;font-weight:800;cursor:pointer;width:80%;max-width:300px;-webkit-tap-highlight-color:transparent;touch-action:manipulation">🖨️ Print / Save PDF</button>
+</div>
+${body}</body></html>`;
 }
 function buildMonthlyHTML(month,mode){
 const am=activeMembers();const s=getState();
@@ -1127,15 +1309,72 @@ const blob=new Blob(['\ufeff'+html],{type:'application/msword'});
 const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=filename;
 document.body.appendChild(a);a.click();document.body.removeChild(a);
 }
-function openPrintWindow(html,title){
-const win=window.open('','_blank');
-if(!win){showToast('Popup blocked! Allow popup karein.','#ef4444');return;}
-win.document.write(html);win.document.close();
+function openPrintWindow(html, title){
+  showToast('PDF ban rahi hai... ⏳', '#3b82f6');
+  // Temporary div mein HTML render karo
+  const container = document.createElement('div');
+  container.innerHTML = html;
+  container.style.position = 'fixed';
+  container.style.left = '-9999px';
+  container.style.top = '0';
+  container.style.width = '210mm';
+  container.style.background = '#fff';
+  document.body.appendChild(container);
+
+  const filename = (title||'report').replace(/[^a-z0-9]/gi,'_').toLowerCase() + '.pdf';
+
+  const opt = {
+    margin: [8, 8, 8, 8],
+    filename: filename,
+    image: { type: 'jpeg', quality: 0.98 },
+    html2canvas: {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: '#ffffff'
+    },
+    jsPDF: {
+      unit: 'mm',
+      format: 'a4',
+      orientation: 'portrait'
+    }
+  };
+
+  html2pdf().set(opt).from(container).save().then(function(){
+    document.body.removeChild(container);
+    showToast('PDF download ho gayi! ✅', '#22c55e');
+  }).catch(function(e){
+    document.body.removeChild(container);
+    // Fallback: HTML download
+    const blob = new Blob([html], {type:'text/html'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename.replace('.pdf','.html');
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 3000);
+    showToast('HTML download ho gayi! 📥', '#22c55e');
+  });
 }
 function downloadFile(name,content,type){
 const blob=new Blob([content],{type});
 const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;
 document.body.appendChild(a);a.click();document.body.removeChild(a);
+}
+function testCloudConnection(){
+  showToast('Test ho raha hai...','#3b82f6');
+  const xhr = new XMLHttpRequest();
+  xhr.open('GET', EDGE_URL + '?apikey=' + encodeURIComponent(ANON_KEY) + '&user_id=test_ping', true);
+  xhr.timeout = 10000;
+  xhr.onreadystatechange = function(){
+    if(xhr.readyState !== 4) return;
+    if(xhr.status === 200) showToast('✅ Cloud connected! Sab sahi hai 🎉','#22c55e');
+    else showToast('❌ Error: HTTP ' + xhr.status,'#ef4444');
+  };
+  xhr.onerror = function(){ showToast('❌ Network error — internet check karo','#ef4444'); };
+  xhr.ontimeout = function(){ showToast('❌ Timeout','#ef4444'); };
+  xhr.send();
 }
 function renderSettings(){
 const s=getState().settings;
@@ -1143,7 +1382,8 @@ const fullEnabled=s.fullShiftEnabled!==false;
 return'<div class="card col"><div style="font-weight:700;color:#e2e8f0">Library Details</div>'+
 '<div class="settings-row"><span style="color:#94a3b8;font-size:14px">Library Name</span><input class="small-input" id="set-libname" value="'+s.libName+'" style="width:140px"/></div>'+
 '<div class="settings-row"><span style="color:#94a3b8;font-size:14px">Total Seats</span><input class="small-input" id="set-seats" type="number" value="'+s.totalSeats+'" min="1"/></div>'+
-'<button class="primary-btn" style="margin-top:8px" onclick="saveLibSettings()">Save Settings</button></div>'+
+'<button class="primary-btn" style="margin-top:8px" onclick="saveLibSettings()">Save Settings</button>'+
+'<button class="secondary-btn" style="margin-top:8px;width:100%;justify-content:center" onclick="testCloudConnection()">☁️ Test Cloud Connection</button></div>'+
 '<div class="section-label">Shifts</div>'+
 '<div class="card col" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;align-items:center">'+
 '<div><div style="color:#e2e8f0;font-weight:600;font-size:14px">Full Shift Option</div><div style="color:#64748b;font-size:12px;margin-top:2px">Member add karte time "Full Shift" dikhao</div></div>'+
